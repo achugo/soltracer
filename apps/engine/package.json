@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=../../.env scripts/migrate.ts up",
-    "db:rollback": "tsx --env-file-if-exists=../../.env scripts/migrate.ts down"
+    "db:rollback": "tsx --env-file-if-exists=../../.env scripts/migrate.ts down",
+    "fixtures": "tsx --env-file-if-exists=../../.env scripts/fixtures.ts"
   },
   "dependencies": {
     "@solana/kit": "^8.4.0",

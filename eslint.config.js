@@ -40,4 +40,9 @@ export default tseslint.config(
     languageOptions: { globals: { process: "readonly", console: "readonly", URL: "readonly" } },
     rules: { "no-console": "off" },
   },
+  {
+    // CLI scripts print their results.
+    files: ["apps/*/scripts/**/*.ts"],
+    rules: { "no-console": "off" },
+  },
 );
