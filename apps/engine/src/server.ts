@@ -1,7 +1,7 @@
 import {
   makeError,
   nonceResponseSchema,
-  verifyRequestSchema,
+  engineVerifyRequestSchema,
   verifyResponseSchema,
 } from "@soltracer/shared";
 import Fastify, { type FastifyServerOptions } from "fastify";
@@ -50,7 +50,7 @@ export function buildServer({ config, nonceStore, logger = true }: ServerDeps) {
   app.post("/auth/nonce", async () => nonceResponseSchema.parse(await issueNonce(nonceStore, new Date())));
 
   app.post("/auth/verify", async (req, reply) => {
-    const body = verifyRequestSchema.safeParse(req.body);
+    const body = engineVerifyRequestSchema.safeParse(req.body);
     if (!body.success) {
       const issues = body.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
       return reply.code(400).send(makeError("VALIDATION_ERROR", "Invalid sign-in request.", issues));

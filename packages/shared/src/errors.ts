@@ -11,6 +11,7 @@ export const errorCodeSchema = z.enum([
   "BAD_SIGNATURE",
   "NOT_ALLOWLISTED",
   "ENGINE_UNAVAILABLE",
+  "HOST_NOT_ALLOWED",
   "INTERNAL",
 ]);
 

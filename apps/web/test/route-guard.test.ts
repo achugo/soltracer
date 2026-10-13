@@ -1,9 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { decideAccess, safeNextPath } from "../lib/route-guard.ts";
 
-const base = { method: "GET", host: "127.0.0.1:3000", origin: null, search: "" };
+const base = {
+  method: "GET",
+  host: "127.0.0.1:3000",
+  origin: null,
+  search: "",
+  allowedHosts: ["127.0.0.1:3000", "localhost:3000"],
+};
 
 describe("decideAccess", () => {
+  it("refuses unknown or missing Host headers before anything else (DNS rebinding)", () => {
+    for (const host of ["evil.example", "evil.example:3000", "127.0.0.1:3001", null]) {
+      for (const hasSession of [false, true]) {
+        expect(decideAccess({ ...base, host, pathname: "/login", hasSession })).toEqual({ type: "misdirected" });
+        expect(decideAccess({ ...base, host, pathname: "/api/auth/nonce", hasSession })).toEqual({ type: "misdirected" });
+      }
+    }
+  });
+
+  it("matches allowed hosts case-insensitively", () => {
+    expect(decideAccess({ ...base, host: "LOCALHOST:3000", pathname: "/login", hasSession: false })).toEqual({ type: "next" });
+  });
+
   it("redirects signed-out page requests to /login with the return path", () => {
     expect(decideAccess({ ...base, pathname: "/stream", search: "?x=1", hasSession: false })).toEqual({
       type: "redirect",

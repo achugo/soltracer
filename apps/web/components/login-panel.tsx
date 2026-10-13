@@ -58,7 +58,7 @@ export function LoginPanel({ next }: { next: string }) {
       }
 
       setStatus({ kind: "busy", label: "Approve the message in your wallet…" });
-      const message = buildLoginMessage(nonce.data.nonce, nonce.data.issuedAt);
+      const message = buildLoginMessage(window.location.host.toLowerCase(), nonce.data.nonce, nonce.data.issuedAt);
       const signature = await signMessage(new TextEncoder().encode(message));
 
       setStatus({ kind: "busy", label: "Verifying…" });

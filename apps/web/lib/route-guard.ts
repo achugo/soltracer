@@ -8,7 +8,8 @@ export type AccessDecision =
   | { type: "next" }
   | { type: "redirect"; to: string }
   | { type: "unauthorized" }
-  | { type: "forbidden" };
+  | { type: "forbidden" }
+  | { type: "misdirected" };
 
 export interface AccessRequest {
   pathname: string;
@@ -17,6 +18,8 @@ export interface AccessRequest {
   host: string | null;
   origin: string | null;
   hasSession: boolean;
+  /** Lowercased Host values this app answers to (APP_HOSTS). */
+  allowedHosts: readonly string[];
 }
 
 function sameOrigin(origin: string, host: string | null): boolean {
@@ -29,6 +32,8 @@ function sameOrigin(origin: string, host: string | null): boolean {
 
 /** Pure routing decision for the proxy: who may see what. */
 export function decideAccess(req: AccessRequest): AccessDecision {
+  // A rebound DNS name reaches 127.0.0.1 with its own Host header; refuse it outright.
+  if (req.host === null || !req.allowedHosts.includes(req.host.toLowerCase())) return { type: "misdirected" };
   if (!SAFE_METHODS.has(req.method) && req.origin !== null && !sameOrigin(req.origin, req.host)) {
     return { type: "forbidden" };
   }

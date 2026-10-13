@@ -101,7 +101,7 @@ Goal: an empty app only allowlisted wallets can enter.
 - Fastify engine bound to 127.0.0.1, accepting only requests carrying `ENGINE_TOKEN`.
 - Sign-in-with-wallet:
   - `GET /api/auth/nonce` issues a single-use nonce (5-minute expiry, stored in Postgres).
-  - The wallet signs `SolTracer login\nNonce: <nonce>\nIssued: <ISO time>`.
+  - The wallet signs `SolTracer login\nDomain: <host>\nNonce: <nonce>\nIssued: <ISO time>`. The web app only answers to hosts in `APP_HOSTS`, and the engine checks that the signed domain matches the request's host (DNS-rebinding guard).
   - `POST /api/auth/verify` checks the ed25519 signature with tweetnacl, checks the pubkey against `ALLOWLIST`, and sets an iron-session cookie (httpOnly, sameSite=strict).
 - Middleware redirects every route except `/login` without a valid session.
 - App shell: top bar with logo, wallet button and sign-out; Sandbox and Stream tabs.

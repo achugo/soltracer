@@ -1,4 +1,4 @@
-import { makeError, verifyRequestSchema, verifyResponseSchema } from "@soltracer/shared";
+import { hostSchema, makeError, verifyRequestSchema, verifyResponseSchema } from "@soltracer/shared";
 import { NextResponse } from "next/server";
 import { callEngine } from "@/lib/engine-client.ts";
 import { webEnv } from "@/lib/env.ts";
@@ -11,7 +11,18 @@ export async function POST(req: Request) {
     return NextResponse.json(makeError("VALIDATION_ERROR", "Invalid sign-in request."), { status: 400 });
   }
 
-  const res = await callEngine(webEnv(), "/auth/verify", { method: "POST", body: body.data }, verifyResponseSchema);
+  // proxy.ts has already checked Host against APP_HOSTS; the engine checks the signed Domain matches it.
+  const domain = hostSchema.safeParse(req.headers.get("host") ?? "");
+  if (!domain.success) {
+    return NextResponse.json(makeError("HOST_NOT_ALLOWED", "Missing or invalid Host header."), { status: 421 });
+  }
+
+  const res = await callEngine(
+    webEnv(),
+    "/auth/verify",
+    { method: "POST", body: { ...body.data, domain: domain.data } },
+    verifyResponseSchema,
+  );
   if (!res.body.ok) return NextResponse.json(res.body, { status: res.status });
 
   const session = await getSessionHandle();

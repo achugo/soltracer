@@ -5,7 +5,8 @@ import { decideAccess } from "./lib/route-guard.ts";
 import { readSessionCookie, SESSION_COOKIE } from "./lib/session-cookie.ts";
 
 export async function proxy(req: NextRequest) {
-  const session = await readSessionCookie(req.cookies.get(SESSION_COOKIE)?.value, webEnv().SESSION_SECRET);
+  const env = webEnv();
+  const session = await readSessionCookie(req.cookies.get(SESSION_COOKIE)?.value, env.SESSION_SECRET);
   const decision = decideAccess({
     pathname: req.nextUrl.pathname,
     search: req.nextUrl.search,
@@ -13,6 +14,7 @@ export async function proxy(req: NextRequest) {
     host: req.headers.get("host"),
     origin: req.headers.get("origin"),
     hasSession: session !== null,
+    allowedHosts: env.APP_HOSTS,
   });
 
   switch (decision.type) {
@@ -22,6 +24,11 @@ export async function proxy(req: NextRequest) {
       return NextResponse.redirect(new URL(decision.to, req.url));
     case "unauthorized":
       return NextResponse.json(makeError("UNAUTHORIZED", "Sign in first."), { status: 401 });
+    case "misdirected":
+      return NextResponse.json(
+        makeError("HOST_NOT_ALLOWED", "This host is not allowed. Add it to APP_HOSTS if it is yours."),
+        { status: 421 },
+      );
     case "forbidden":
       return NextResponse.json(makeError("UNAUTHORIZED", "Cross-origin request refused."), { status: 403 });
   }

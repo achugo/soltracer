@@ -6,6 +6,7 @@ import { allowed, ENGINE_TOKEN, stranger, testConfig } from "./helpers/fixtures.
 import { MemoryNonceStore } from "./helpers/memory-nonce-store.ts";
 
 const auth = { authorization: `Bearer ${ENGINE_TOKEN}` };
+const DOMAIN = "127.0.0.1:3000";
 let app: FastifyInstance;
 
 beforeEach(async () => {
@@ -33,8 +34,8 @@ async function verify(body: unknown) {
 
 async function signedRequest(signer: typeof allowed) {
   const { nonce, issuedAt } = await issueNonce();
-  const message = buildLoginMessage(nonce, issuedAt);
-  return { publicKey: signer.publicKey, signature: signer.sign(message), message };
+  const message = buildLoginMessage(DOMAIN, nonce, issuedAt);
+  return { publicKey: signer.publicKey, signature: signer.sign(message), message, domain: DOMAIN };
 }
 
 describe("ENGINE_TOKEN", () => {
@@ -111,8 +112,8 @@ describe("POST /auth/verify", () => {
   });
 
   it("refuses a nonce the engine never issued", async () => {
-    const message = buildLoginMessage("1111111111111111111111", "2026-10-13T12:00:00.000Z");
-    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message });
+    const message = buildLoginMessage(DOMAIN, "1111111111111111111111", "2026-10-13T12:00:00.000Z");
+    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message, domain: DOMAIN });
     expect(res.status).toBe(401);
     expect(errorResponseSchema.parse(res.body).code).toBe("NONCE_INVALID");
   });
@@ -132,15 +133,37 @@ describe("POST /auth/verify", () => {
 
   it("refuses a message whose Issued time differs from the issued nonce", async () => {
     const { nonce } = await issueNonce();
-    const message = buildLoginMessage(nonce, "2026-10-13T11:59:00.000Z");
-    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message });
+    const message = buildLoginMessage(DOMAIN, nonce, "2026-10-13T11:59:00.000Z");
+    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message, domain: DOMAIN });
     expect(res.status).toBe(400);
     expect(errorResponseSchema.parse(res.body).code).toBe("BAD_MESSAGE");
   });
 
+  it("refuses a message signed for another domain without spending the nonce", async () => {
+    const { nonce, issuedAt } = await issueNonce();
+    const message = buildLoginMessage("evil.example", nonce, issuedAt);
+    const forged = { publicKey: allowed.publicKey, signature: allowed.sign(message), message, domain: DOMAIN };
+    const res = await verify(forged);
+    expect(res.status).toBe(400);
+    const err = errorResponseSchema.parse(res.body);
+    expect(err.code).toBe("BAD_MESSAGE");
+    expect(err.message).toMatch(/different site/i);
+
+    const genuine = buildLoginMessage(DOMAIN, nonce, issuedAt);
+    const ok = await verify({ ...forged, message: genuine, signature: allowed.sign(genuine) });
+    expect(ok.status).toBe(200);
+  });
+
+  it("requires the domain field from the web app", async () => {
+    const { publicKey, signature, message } = await signedRequest(allowed);
+    const res = await verify({ publicKey, signature, message });
+    expect(res.status).toBe(400);
+    expect(errorResponseSchema.parse(res.body).code).toBe("VALIDATION_ERROR");
+  });
+
   it("refuses a malformed message", async () => {
     const message = "please let me in";
-    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message });
+    const res = await verify({ publicKey: allowed.publicKey, signature: allowed.sign(message), message, domain: DOMAIN });
     expect(res.status).toBe(400);
     expect(errorResponseSchema.parse(res.body).code).toBe("BAD_MESSAGE");
   });

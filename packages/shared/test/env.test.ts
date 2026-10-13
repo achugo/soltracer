@@ -62,9 +62,25 @@ describe("engineEnvSchema", () => {
 });
 
 describe("webEnvSchema", () => {
-  it("parses a valid env and defaults ENGINE_URL", () => {
+  it("parses a valid env and defaults ENGINE_URL and APP_HOSTS", () => {
     const env = webEnvSchema.parse({ SESSION_SECRET: "s".repeat(32), ENGINE_TOKEN: token });
     expect(env.ENGINE_URL).toBe("http://127.0.0.1:4000");
+    expect(env.APP_HOSTS).toEqual(["127.0.0.1:3000", "localhost:3000"]);
+  });
+
+  it("parses APP_HOSTS as a trimmed, lowercased, deduped list", () => {
+    const env = webEnvSchema.parse({
+      SESSION_SECRET: "s".repeat(32),
+      ENGINE_TOKEN: token,
+      APP_HOSTS: " 127.0.0.1:3000 , MyBox.tail1.ts.net,127.0.0.1:3000 ",
+    });
+    expect(env.APP_HOSTS).toEqual(["127.0.0.1:3000", "mybox.tail1.ts.net"]);
+  });
+
+  it("rejects an invalid or empty APP_HOSTS", () => {
+    const base = { SESSION_SECRET: "s".repeat(32), ENGINE_TOKEN: token };
+    expect(webEnvSchema.safeParse({ ...base, APP_HOSTS: "http://evil.com" }).success).toBe(false);
+    expect(webEnvSchema.safeParse({ ...base, APP_HOSTS: " , " }).success).toBe(false);
   });
 
   it("requires a SESSION_SECRET of at least 32 characters", () => {

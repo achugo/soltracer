@@ -5,7 +5,7 @@ import {
   parseLoginMessage,
   type ErrorResponse,
   type NonceResponse,
-  type VerifyRequest,
+  type EngineVerifyRequest,
   type VerifyResponse,
 } from "@soltracer/shared";
 import bs58 from "bs58";
@@ -22,16 +22,26 @@ export async function issueNonce(store: NonceStore, now: Date): Promise<NonceRes
 export type LoginFailure = { status: 400 | 401 | 403; error: ErrorResponse };
 
 /**
- * Checks the message shape, signature and allowlist before spending the nonce,
+ * Checks the message shape, domain, signature and allowlist before spending the nonce,
  * so a forged or refused attempt cannot burn the real user's nonce.
  */
 export async function verifyLogin(
-  req: VerifyRequest,
+  req: EngineVerifyRequest,
   deps: { store: NonceStore; allowlist: readonly string[]; now: Date },
 ): Promise<VerifyResponse | LoginFailure> {
   const parsed = parseLoginMessage(req.message);
   if (!parsed) {
     return { status: 400, error: makeError("BAD_MESSAGE", "The signed message is not a SolTracer login message.") };
+  }
+
+  if (parsed.domain !== req.domain) {
+    return {
+      status: 400,
+      error: makeError("BAD_MESSAGE", "This message was signed for a different site.", {
+        signedFor: parsed.domain,
+        expected: req.domain,
+      }),
+    };
   }
 
   const signatureOk = nacl.sign.detached.verify(

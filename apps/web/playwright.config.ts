@@ -19,11 +19,13 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: `pnpm exec next dev --hostname 127.0.0.1 --port ${E2E_WEB_PORT}`,
+      // A production build: closer to real use, and it can run while `pnpm dev` is up
+      // (Next allows only one `next dev` per app directory).
+      command: `pnpm exec next build && pnpm exec next start --hostname 127.0.0.1 --port ${E2E_WEB_PORT}`,
       url: `${E2E_BASE_URL}/login`,
       env: e2eEnv,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 240_000,
     },
   ],
 });
