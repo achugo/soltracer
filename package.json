@@ -15,6 +15,7 @@
     "e2e": "pnpm --filter @soltracer/web e2e",
     "db:generate": "pnpm --filter @soltracer/engine db:generate",
     "db:migrate": "pnpm --filter @soltracer/engine db:migrate",
+    "db:rollback": "pnpm --filter @soltracer/engine db:rollback",
     "check:bundle": "node scripts/check-bundle-secrets.mjs"
   },
   "devDependencies": {
