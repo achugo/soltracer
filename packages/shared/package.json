@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./auth": "./src/auth.ts",
+    "./errors": "./src/errors.ts",
+    "./simulation": "./src/simulation.ts",
+    "./solana": "./src/solana.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

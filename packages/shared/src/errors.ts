@@ -12,6 +12,10 @@ export const errorCodeSchema = z.enum([
   "NOT_ALLOWLISTED",
   "ENGINE_UNAVAILABLE",
   "HOST_NOT_ALLOWED",
+  "TX_DECODE_FAILED",
+  "TX_TOO_LARGE",
+  "RPC_ERROR",
+  "RPC_RATE_LIMITED",
   "INTERNAL",
 ]);
 
