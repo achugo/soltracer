@@ -136,6 +136,7 @@ Acceptance:
 
 - [ ] Fixtures for a Jupiter swap, a failed swap with slippage, and a plain SOL transfer produce the correct deltas, CU and decoded error.
 - [ ] A transaction with lookup tables lists every resolved account.
+- [ ] A version-1 fixture shows its config CU limit, a 241-lamport priority fee and a 5241-lamport total fee.
 - [ ] One simulation costs 6 credits or fewer, as shown in the logs.
 
 ### Phase 2: Landing optimizer
@@ -144,7 +145,7 @@ Goal: turn a transaction that won't land into one that will.
 
 - Simulate to get actual CU used; set the limit to `ceil(used × 1.15)`, capped at 1.4M.
 - Call `getRecentPrioritizationFees` with the write-locked accounts; offer p50, p75 and p90 presets.
-- Replace or insert the ComputeBudget instructions, set a fresh blockhash, and return the unsigned transaction as base64.
+- Replace or insert the ComputeBudget instructions (legacy/v0) or rewrite the message config's CU limit and total priority fee (v1), set a fresh blockhash, and return the unsigned transaction as base64.
 - Warn when a write-locked account appears in the recent fee data with high fees (contention).
 - UI: before/after comparison and a "Sign and send with wallet" button. The wallet signs and sends; the engine never does.
 
