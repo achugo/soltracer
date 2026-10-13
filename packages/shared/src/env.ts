@@ -30,7 +30,13 @@ const urlWithProtocol = (protocol: RegExp) => z.url({ protocol });
 
 export const engineEnvSchema = z.object({
   HELIUS_API_KEY: z.string().min(1),
-  HELIUS_RPC_URL: urlWithProtocol(/^https$/),
+  // https, or plain http to a loopback address (local fake RPC for e2e tests).
+  HELIUS_RPC_URL: z.union([
+    urlWithProtocol(/^https$/),
+    z
+      .url({ protocol: /^http$/, hostname: /^(127\.0\.0\.1|localhost)$/ })
+      .refine((u) => !/api-key=/i.test(u), "A plain-http RPC URL must not carry an api-key"),
+  ]),
   HELIUS_WSS_URL: urlWithProtocol(/^wss$/),
   DATABASE_URL: urlWithProtocol(/^postgres(ql)?$/),
   ALLOWLIST: allowlistSchema,

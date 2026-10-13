@@ -51,6 +51,15 @@ describe("engineEnvSchema", () => {
     expect(engineEnvSchema.safeParse({ ...engineEnv, ENGINE_TOKEN: "short" }).success).toBe(false);
   });
 
+  it("allows plain http only for a loopback RPC (local fakes in e2e)", () => {
+    for (const url of ["http://127.0.0.1:4199", "http://localhost:4199/"]) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_RPC_URL: url }).success).toBe(true);
+    }
+    for (const url of ["http://rpc.example.com", "http://127.0.0.1.evil.com", "http://10.0.0.1", "http://127.0.0.1:4199/?api-key=real"]) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_RPC_URL: url }).success).toBe(false);
+    }
+  });
+
   it("requires https and wss Helius URLs", () => {
     expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_RPC_URL: "http://rpc.example.com" }).success).toBe(false);
     expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: "ws://rpc.example.com" }).success).toBe(false);
