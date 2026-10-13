@@ -57,6 +57,17 @@ export function BalanceTable({ balances, feePayer }: { balances: SimulationResul
                         <td className={`${td} text-right`}><Delta delta={g.sol.delta} decimals={LAMPORTS_DECIMALS} /></td>
                       </tr>
                     )}
+                    {g.tokenAccountSol.map(({ account, sol }) => (
+                      <tr key={`sol-${account}`}>
+                        <td className={td}>
+                          SOL <span className="text-neutral-400">(token account rent)</span>
+                        </td>
+                        <td className={td}><Address value={account} className="text-neutral-300" /></td>
+                        <td className={`${td} text-right`}><Amount raw={sol.pre} decimals={LAMPORTS_DECIMALS} /></td>
+                        <td className={`${td} text-right`}><Amount raw={sol.post} decimals={LAMPORTS_DECIMALS} /></td>
+                        <td className={`${td} text-right`}><Delta delta={sol.delta} decimals={LAMPORTS_DECIMALS} /></td>
+                      </tr>
+                    ))}
                     {g.tokens.map((t) => (
                       <tr key={t.account}>
                         <td className={td}>

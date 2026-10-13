@@ -2,6 +2,7 @@
 
 import { Check, Copy, ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DisclosureChevron } from "./disclosure-chevron.tsx";
 
 type CopyState = "idle" | "copied" | "failed";
 const COPY_LABEL: Record<CopyState, string> = { idle: "Copy logs", copied: "Copied", failed: "Copy failed" };
@@ -25,8 +26,9 @@ export function LogsPanel({ logs }: { logs: string[] }) {
   };
 
   return (
-    <details className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
-      <summary className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-900">
+    <details className="group rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden gap-2 rounded-lg px-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-900">
+        <DisclosureChevron />
         <ScrollText className="size-4 text-violet-400" aria-hidden />
         Raw logs ({logs.length} lines)
       </summary>

@@ -18,17 +18,17 @@ describe("parseSimulateResponse", () => {
     expect(parseSimulateResponse(false, err)).toEqual(err);
   });
 
-  it("drops an invalid result with a warning", () => {
+  it("drops an invalid result without logging it", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const bad = { ...simulationResult(), unitsConsumed: -1 };
     expect(parseSimulateResponse(true, bad)).toMatchObject({ ok: false, code: "INTERNAL" });
-    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it("drops an unknown error shape with a warning", () => {
+  it("drops an unknown error shape without logging it", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(parseSimulateResponse(false, "<html>")).toMatchObject({ ok: false, code: "INTERNAL" });
-    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

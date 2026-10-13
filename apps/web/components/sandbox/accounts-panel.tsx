@@ -1,14 +1,17 @@
 import type { AccountRef } from "@soltracer/shared/simulation";
 import { Address } from "./address.tsx";
+import { DisclosureChevron } from "./disclosure-chevron.tsx";
 
 const summaryClass =
-  "flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-900";
+  "flex min-h-11 cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden gap-2 rounded-lg px-2 text-sm font-semibold text-neutral-200 hover:bg-neutral-900";
 
 /** Every account the transaction touches, including entries resolved from lookup tables. */
 export function AccountsPanel({ accounts }: { accounts: AccountRef[] }) {
   return (
-    <details className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
-      <summary className={summaryClass}>Accounts ({accounts.length})</summary>
+    <details className="group rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
+      <summary className={summaryClass}>
+        <DisclosureChevron />
+        Accounts ({accounts.length})</summary>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

@@ -60,6 +60,54 @@ describe("groupBalances", () => {
     expect(groups[1]).toMatchObject({ sol: null, isFeePayer: false });
   });
 
+  it("folds a created ATA's rent into its owner's group", () => {
+    // PAYER funds a new USDC ATA (rent 2,039,280) that receives 1 USDC.
+    const groups = groupBalances(
+      {
+        sol: [
+          sol(PAYER, "-2044280"),
+          { address: ATA_A, pre: "0", post: "2039280", delta: "2039280" },
+        ],
+        tokens: [{ ...token(ATA_A, OTHER, USDC, "1000000"), pre: "0", post: "1000000" }],
+      },
+      PAYER,
+    );
+    expect(groups.map((g) => g.owner)).toEqual([PAYER, OTHER]);
+    expect(groups.some((g) => g.owner === ATA_A)).toBe(false);
+    expect(groups[1]).toMatchObject({
+      sol: null,
+      tokenAccountSol: [{ account: ATA_A, sol: { delta: "2039280" } }],
+      tokens: [{ account: ATA_A, delta: "1000000" }],
+    });
+  });
+
+  it("folds a closed WSOL account's lamports into its owner's group", () => {
+    // PAYER unwraps 0.5 SOL: the WSOL account's rent plus wrapped lamports return to PAYER.
+    const groups = groupBalances(
+      {
+        sol: [
+          { address: ATA_B, pre: "502039280", post: "0", delta: "-502039280" },
+          sol(PAYER, "502034280"),
+        ],
+        tokens: [{ ...token(ATA_B, PAYER, WSOL, "-500000000"), decimals: 9, pre: "500000000", post: "0" }],
+      },
+      PAYER,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      owner: PAYER,
+      isFeePayer: true,
+      sol: { delta: "502034280" },
+      tokenAccountSol: [{ account: ATA_B, sol: { delta: "-502039280" } }],
+      tokens: [{ account: ATA_B, mint: WSOL }],
+    });
+  });
+
+  it("keeps a SOL row in its own group when no token row names it", () => {
+    const groups = groupBalances({ sol: [sol(ATA_A, "2039280")], tokens: [] }, null);
+    expect(groups).toEqual([{ owner: ATA_A, isFeePayer: false, sol: expect.anything(), tokenAccountSol: [], tokens: [] }]);
+  });
+
   it("marks no fee payer when it has no balance rows", () => {
     const groups = groupBalances({ sol: [sol(OTHER, "1")], tokens: [] }, PAYER);
     expect(groups.every((g) => !g.isFeePayer)).toBe(true);

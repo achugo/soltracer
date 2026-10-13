@@ -5,17 +5,16 @@ export type SimulateOutcome = SimulationResult | ErrorResponse;
 
 /**
  * Validates a `/api/simulate` reply. Anything that is neither a valid result nor a typed error is
- * dropped with a warning and reported as INTERNAL, so a bad payload never reaches the view.
+ * dropped and reported as INTERNAL, so a bad payload never reaches the view. Nothing is logged:
+ * zod issues would echo the payload into the browser console.
  */
 export function parseSimulateResponse(httpOk: boolean, json: unknown): SimulateOutcome {
   if (httpOk) {
     const result = simulationResultSchema.safeParse(json);
     if (result.success) return result.data;
-    console.warn("Dropped an invalid simulation result", result.error.issues);
   } else {
     const error = errorResponseSchema.safeParse(json);
     if (error.success) return error.data;
-    console.warn("Dropped an invalid error response", error.error.issues);
   }
   return makeError("INTERNAL", "The server returned an unexpected response.");
 }
