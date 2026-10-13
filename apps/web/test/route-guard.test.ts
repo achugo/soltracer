@@ -54,12 +54,30 @@ describe("decideAccess", () => {
 });
 
 describe("safeNextPath", () => {
-  it("keeps same-site paths", () => {
+  it("keeps same-site paths with query and hash", () => {
     expect(safeNextPath("/stream?x=1")).toBe("/stream?x=1");
+    expect(safeNextPath("/runs/abc#node-3")).toBe("/runs/abc#node-3");
   });
 
   it("falls back to /sandbox for anything that could leave the site or loop", () => {
-    for (const value of [null, "", "https://evil.example", "//evil.example", "/\\evil.example", "/login", "/login?next=/x", "stream"]) {
+    for (const value of [
+      null,
+      "",
+      "https://evil.example",
+      "//evil.example",
+      "/\\evil.example",
+      "/\t/evil.example",
+      "/\n/evil.example",
+      "/\u007f/evil.example",
+      "/.//evil.example",
+      "/a/..//evil.example",
+      "/%2e//evil.example",
+      "/x/../login",
+      "/login",
+      "/login?next=/x",
+      "/login#x",
+      "stream",
+    ]) {
       expect(safeNextPath(value)).toBe("/sandbox");
     }
   });

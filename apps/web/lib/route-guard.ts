@@ -40,9 +40,28 @@ export function decideAccess(req: AccessRequest): AccessDecision {
   return { type: "redirect", to: `/login?next=${encodeURIComponent(req.pathname + req.search)}` };
 }
 
+const PROBE_ORIGIN = "http://same-site.invalid";
+// URL parsing strips tabs and newlines and treats "\" as "/", so "/\t/evil.com" would become "//evil.com".
+// It also removes dot segments, so "/.//evil.com" normalises to "//evil.com": re-check the result.
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const UNSAFE_CHARS = /[\u0000-\u001f\u007f\\]/;
+
 /** Only same-site absolute paths survive; everything else goes home. */
 export function safeNextPath(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return HOME_PATH;
-  if (value === "/login" || value.startsWith("/login?") || value.startsWith("/login/")) return HOME_PATH;
-  return value;
+  if (!value || !value.startsWith("/") || UNSAFE_CHARS.test(value)) return HOME_PATH;
+  let url: URL;
+  try {
+    url = new URL(value, PROBE_ORIGIN);
+  } catch {
+    return HOME_PATH;
+  }
+  if (
+    url.origin !== PROBE_ORIGIN ||
+    url.pathname.startsWith("//") ||
+    url.pathname === "/login" ||
+    url.pathname.startsWith("/login/")
+  ) {
+    return HOME_PATH;
+  }
+  return url.pathname + url.search + url.hash;
 }
