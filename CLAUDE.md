@@ -7,7 +7,7 @@ Private Solana transaction debugger for one user. It simulates transactions in a
 - `docs/build-prompt.md`: stack, architecture, global rules, Phases 0–6 with acceptance criteria.
 - `docs/live-trace-view.md`: the live trace view, Steps 1–10 with exact commits. It replaces the trace viewer in Phase 4.
 - Before starting a phase or step, read its section in full. If these docs and this file disagree, the docs win; tell me about the conflict.
-- **Current work:** Phase 0 (update this line when a phase or step is done).
+- **Current work:** Phase 0 built on `feat/phase-0-scaffold`, awaiting review. Next: Phase 1 (update this line when a phase or step is done).
 
 ## Hard constraints
 
@@ -27,12 +27,15 @@ Private Solana transaction debugger for one user. It simulates transactions in a
 
 ## Commands
 
-Fill these in during Phase 0 and keep them accurate.
+Node 22 (`.nvmrc`), pnpm 12 via corepack. Copy `.env.example` to `.env` at the repo root; both apps read it.
 
-- `docker compose up -d`: start Postgres
-- `pnpm dev`: run web (3000) and engine (4000)
-- `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm e2e`
-- `pnpm db:migrate`: apply drizzle migrations
+- `docker compose up -d`: start Postgres (127.0.0.1:5432)
+- `pnpm db:migrate` / `pnpm db:rollback`: apply / roll back the latest drizzle migration (down SQL in `apps/engine/drizzle/down/`)
+- `pnpm db:generate`: generate a migration from `apps/engine/src/db/schema.ts`
+- `pnpm dev`: run web (3000) and engine (4000), both on 127.0.0.1
+- `pnpm typecheck` / `pnpm lint` / `pnpm test`: engine tests need Postgres running (they use `soltracer_test`)
+- `pnpm e2e`: Playwright; starts its own engine (4100) and web (3100) with dummy env. First time: `pnpm --filter @soltracer/web exec playwright install chromium`
+- `pnpm check:bundle`: builds web and fails if any secret value is in browser-facing output
 
 ## How we work
 
