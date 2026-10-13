@@ -11,7 +11,8 @@ try {
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Referrer-Policy", value: "no-referrer" },
+  // Not "no-referrer": that makes Chrome send `Origin: null` on form POSTs, which the proxy refuses.
+  { key: "Referrer-Policy", value: "same-origin" },
 ];
 
 const nextConfig: NextConfig = {

@@ -11,12 +11,19 @@ import {
 import bs58 from "bs58";
 import { AlertTriangle, ExternalLink, Loader2, LogIn, Unplug } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 const SUPPORTED = new Map([
   ["Phantom", "https://phantom.com/download"],
   ["Solflare", "https://solflare.com/download"],
 ]);
+
+const noopSubscribe = () => () => undefined;
+
+/** False during SSR and hydration, true after: wallets are only detectable in the browser. */
+function useIsClient(): boolean {
+  return useSyncExternalStore(noopSubscribe, () => true, () => false);
+}
 
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string };
 
@@ -29,6 +36,7 @@ export function LoginPanel({ next }: { next: string }) {
   const { wallets, wallet, publicKey, connected, connecting, select, disconnect, signMessage } = useWallet();
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const isClient = useIsClient();
 
   const detected = wallets.filter(
     (w) => SUPPORTED.has(w.adapter.name) && w.readyState === WalletReadyState.Installed,
@@ -103,6 +111,11 @@ export function LoginPanel({ next }: { next: string }) {
             Use a different wallet
           </button>
         </>
+      ) : !isClient ? (
+        <p className="flex min-h-11 items-center gap-2 text-sm text-neutral-400">
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          Looking for wallets…
+        </p>
       ) : (
         <>
           {detected.map((w) => (
