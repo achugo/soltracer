@@ -16,3 +16,7 @@ test-results/
 CLAUDE.local.md
 .claude/settings.local.json
 .DS_Store
+
+# Next.js generated
+next-env.d.ts
+*.tsbuildinfo

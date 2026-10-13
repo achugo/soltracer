@@ -1,5 +1,8 @@
 import js from "@eslint/js";
+import nextVitals from "eslint-config-next/core-web-vitals";
 import tseslint from "typescript-eslint";
+
+const WEB_FILES = ["apps/web/**/*.{ts,tsx}"];
 
 export default tseslint.config(
   {
@@ -15,6 +18,8 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
+  ...nextVitals.map((config) => ({ ...config, files: WEB_FILES })),
+  { files: WEB_FILES, settings: { next: { rootDir: "apps/web" } } },
   ...tseslint.configs.strict,
   {
     rules: {
