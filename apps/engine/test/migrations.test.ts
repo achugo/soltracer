@@ -13,9 +13,11 @@ async function tableExists(name: string): Promise<boolean> {
   return rows[0]?.exists === true;
 }
 
+const TABLES = ["auth_nonces", "mint_cache", "lookup_table_cache", "idl_cache"];
+
 async function resetSchema(): Promise<void> {
   await db.execute(sql`drop schema if exists drizzle cascade`);
-  await db.execute(sql`drop table if exists auth_nonces`);
+  for (const t of TABLES) await db.execute(sql.raw(`drop table if exists ${t}`));
 }
 
 describe("migrations", () => {
@@ -27,6 +29,10 @@ describe("migrations", () => {
 
   it("run up, down and up again cleanly", async () => {
     await migrateUp(db);
+    for (const t of TABLES) expect(await tableExists(t)).toBe(true);
+
+    expect(await migrateDown(db)).toBe("0001_sandbox_caches");
+    expect(await tableExists("mint_cache")).toBe(false);
     expect(await tableExists("auth_nonces")).toBe(true);
 
     expect(await migrateDown(db)).toBe("0000_auth_nonces");
@@ -34,6 +40,6 @@ describe("migrations", () => {
     expect(await migrateDown(db)).toBeNull();
 
     await migrateUp(db);
-    expect(await tableExists("auth_nonces")).toBe(true);
+    for (const t of TABLES) expect(await tableExists(t)).toBe(true);
   });
 });
