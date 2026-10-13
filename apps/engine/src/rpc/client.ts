@@ -64,9 +64,23 @@ export interface RpcClientOptions {
   transport?: RpcTransport;
 }
 
-/** Replaces the RPC URL and any api-key value in free text. */
+/** The api-key in an RPC URL, if any. */
+function apiKeyOf(url: string): string | null {
+  try {
+    return new URL(url).searchParams.get("api-key");
+  } catch {
+    return null;
+  }
+}
+
+/** Replaces the RPC URL, any api-key=… value and the bare key (raw or URL-encoded) in free text. */
 export function redact(text: string, url: string): string {
-  return text.split(url).join("<rpc-url>").replace(/api-key=[^&\s"']+/gi, "api-key=***");
+  let out = text.split(url).join("<rpc-url>").replace(/api-key=[^&\s"']+/gi, "api-key=***");
+  const key = apiKeyOf(url);
+  if (key && key.length >= 8) {
+    for (const form of new Set([key, encodeURIComponent(key)])) out = out.split(form).join("***");
+  }
+  return out;
 }
 
 function messageOf(err: unknown): string {

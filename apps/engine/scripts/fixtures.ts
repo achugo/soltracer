@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { address, signature as toSignature, type Signature } from "@solana/kit";
+import { engineEnvSchema } from "@soltracer/shared";
 import { z } from "zod";
 import { createMemoryCaches } from "../src/cache/memory.ts";
 import { anchorIdlAddress } from "../src/decode/idl-address.ts";
@@ -27,7 +28,8 @@ const SYSTEM = "11111111111111111111111111111111";
 const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
-const { HELIUS_RPC_URL } = z.object({ HELIUS_RPC_URL: z.url() }).parse(process.env);
+// Same rule as the engine: https, or plain http to loopback without a key.
+const { HELIUS_RPC_URL } = engineEnvSchema.pick({ HELIUS_RPC_URL: true }).parse(process.env);
 
 const client = createRpcClient({
   url: HELIUS_RPC_URL,
@@ -168,6 +170,7 @@ async function recordIdl(program: string, name: string, force: boolean) {
 
 /** Runs the real simulator (cold caches) on a recorded transaction and records every RPC exchange. */
 async function recordSimulation(name: string, force: boolean) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
   const txPath = `${FIXTURE_DIR}${name}.tx.json`;
   const outPath = `${FIXTURE_DIR}${name}.sim.json`;
   if (existsSync(outPath) && !force) throw new Error(`${outPath} exists; pass --force to overwrite`);

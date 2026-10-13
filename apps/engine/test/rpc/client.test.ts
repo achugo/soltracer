@@ -109,6 +109,16 @@ describe("createRpcClient", () => {
     expect((err as RpcError).details).toEqual({ jsonRpcCode: -32009 });
   });
 
+  it("redacts the bare key when an error mentions it without the URL", async () => {
+    const inner = (async () => {
+      throw new Error("auth failed for key super-secret-key-123 (super-secret-key-123)");
+    }) as RpcTransport;
+    const { client } = makeClient(inner);
+    const err = await client.session().rpc.getBalance(address("11111111111111111111111111111111")).send().catch((e: unknown) => e);
+    expect((err as RpcError).message).not.toContain("super-secret-key-123");
+    expect((err as RpcError).message).toContain("***");
+  });
+
   it("maps HTTP 429 to RPC_RATE_LIMITED and strips the API key", async () => {
     const inner = (async () => {
       throw new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, {
