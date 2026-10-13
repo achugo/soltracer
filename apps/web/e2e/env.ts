@@ -17,14 +17,16 @@ export const allowedWallet = testWallet(11);
 export const strangerWallet = testWallet(12);
 
 export const E2E_ENGINE_PORT = 4100;
+/** Local fake RPC serving recorded mainnet responses (apps/engine/scripts/fake-rpc.ts). */
+export const E2E_FAKE_RPC_PORT = 4199;
 export const E2E_WEB_PORT = 3100;
 export const E2E_BASE_URL = `http://127.0.0.1:${E2E_WEB_PORT}`;
 export const E2E_DOMAIN = `127.0.0.1:${E2E_WEB_PORT}`;
 
-/** Env for both servers. Dummy Helius values: Phase 0 never calls RPC. */
+/** Env for both servers. RPC goes to the local fake; the Helius values are dummies. */
 export const e2eEnv = {
   HELIUS_API_KEY: "e2e-dummy-helius-key",
-  HELIUS_RPC_URL: "https://rpc.invalid/?api-key=e2e-dummy-helius-key",
+  HELIUS_RPC_URL: `http://127.0.0.1:${E2E_FAKE_RPC_PORT}`,
   HELIUS_WSS_URL: "wss://rpc.invalid/?api-key=e2e-dummy-helius-key",
   DATABASE_URL:
     process.env.E2E_DATABASE_URL ?? "postgres://soltracer:soltracer@127.0.0.1:5432/soltracer",
