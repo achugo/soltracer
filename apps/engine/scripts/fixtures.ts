@@ -4,6 +4,7 @@
  *
  *   tsx scripts/fixtures.ts find <kind> [--max-credits N]
  *   tsx scripts/fixtures.ts record <signature> <name> [--force]
+ *   tsx scripts/fixtures.ts record-idl <program> <name> [--force]
  *
  * kinds: jupiter-alt-success | jupiter-slippage-6001 | sol-transfer | token-2022-transfer | v1-transaction
  */
@@ -12,6 +13,7 @@ import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { address, signature as toSignature, type Signature } from "@solana/kit";
 import { z } from "zod";
+import { anchorIdlAddress } from "../src/decode/idl-address.ts";
 import { createRpcClient, type RpcCallRecord, type RpcSession } from "../src/rpc/client.ts";
 import { createRateLimiter } from "../src/rpc/rate-limiter.ts";
 
@@ -147,12 +149,29 @@ async function record(sig: string, name: string, force: boolean) {
   console.log(`Wrote ${path} (credits used: ${session.credits()})`);
 }
 
+/** Records the getAccountInfo exchange for a program's on-chain Anchor IDL account. */
+async function recordIdl(program: string, name: string, force: boolean) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
+  const path = fileURLToPath(new URL(`../test/fixtures/idl/${name}.idl.json`, import.meta.url));
+  if (existsSync(path) && !force) throw new Error(`${path} exists; pass --force to overwrite`);
+  const idlAddress = await anchorIdlAddress(address(program));
+  const records: RpcCallRecord[] = [];
+  const session = client.session({ record: records });
+  const account = await session.rpc.getAccountInfo(idlAddress, { encoding: "base64", commitment: "confirmed" }).send();
+  if (!account.value) throw new Error(`No Anchor IDL account at ${idlAddress} for ${program}`);
+  await writeFile(path, `${stringify({ program, idlAddress, recordedAt: new Date().toISOString(), rpc: records })}\n`);
+  console.log(`Wrote ${path} (credits used: ${session.credits()})`);
+}
+
 const [command, a, b, c] = process.argv.slice(2);
 if (command === "find" && a) {
   const cap = b === "--max-credits" ? z.coerce.number().int().positive().parse(c) : 300;
   await find(a, cap);
 } else if (command === "record" && a && b) await record(a, b, c === "--force");
+else if (command === "record-idl" && a && b) await recordIdl(a, b, c === "--force");
 else {
-  console.error("Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name>");
+  console.error(
+    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force]",
+  );
   process.exit(1);
 }
