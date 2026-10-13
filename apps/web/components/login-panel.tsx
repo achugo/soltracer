@@ -2,12 +2,9 @@
 
 import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
-import {
-  buildLoginMessage,
-  errorResponseSchema,
-  nonceResponseSchema,
-  verifyResponseSchema,
-} from "@soltracer/shared";
+// Subpath imports keep the server-only env schemas out of the client bundle.
+import { buildLoginMessage, nonceResponseSchema, verifyResponseSchema } from "@soltracer/shared/auth";
+import { errorResponseSchema } from "@soltracer/shared/errors";
 import bs58 from "bs58";
 import { AlertTriangle, ExternalLink, Loader2, LogIn, Unplug } from "lucide-react";
 import { useRouter } from "next/navigation";
