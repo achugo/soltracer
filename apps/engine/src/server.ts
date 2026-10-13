@@ -8,6 +8,7 @@ import Fastify, { type FastifyServerOptions } from "fastify";
 import { z } from "zod";
 import { hasEngineToken } from "./auth/engine-token.ts";
 import { issueNonce, verifyLogin } from "./auth/login.ts";
+import { checkSessionWallet, needsSessionWallet, SESSION_WALLET_HEADER } from "./auth/session-wallet.ts";
 import type { NonceStore } from "./auth/nonce-store.ts";
 import type { EngineConfig } from "./config.ts";
 
@@ -29,6 +30,17 @@ export function buildServer({ config, nonceStore, logger = true }: ServerDeps) {
   app.addHook("onRequest", async (req, reply) => {
     if (!hasEngineToken(req.headers.authorization, config.ENGINE_TOKEN)) {
       return reply.code(401).send(makeError("UNAUTHORIZED", "Missing or invalid engine token."));
+    }
+    if (!needsSessionWallet(req.url)) return;
+    switch (checkSessionWallet(req.headers[SESSION_WALLET_HEADER], config.ALLOWLIST)) {
+      case "missing":
+        return reply.code(401).send(makeError("UNAUTHORIZED", "Missing session wallet."));
+      case "not-allowlisted":
+        return reply
+          .code(403)
+          .send(makeError("NOT_ALLOWLISTED", "This wallet is no longer on the allowlist. Sign in again."));
+      case "ok":
+        return;
     }
   });
 

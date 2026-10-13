@@ -59,7 +59,11 @@ describe("ENGINE_TOKEN", () => {
   });
 
   it("returns a typed 404 for unknown routes once authenticated", async () => {
-    const res = await app.inject({ method: "GET", url: "/nope", headers: auth });
+    const res = await app.inject({
+      method: "GET",
+      url: "/nope",
+      headers: { ...auth, "x-soltracer-wallet": allowed.publicKey },
+    });
     expect(res.statusCode).toBe(404);
     expect(errorResponseSchema.parse(res.json()).code).toBe("NOT_FOUND");
   });
@@ -217,5 +221,52 @@ describe("internal errors", () => {
     const err = errorResponseSchema.parse(res.json());
     expect(err.code).toBe("INTERNAL");
     expect(res.body).not.toContain("hunter2");
+  });
+});
+
+describe("session wallet re-check", () => {
+  async function withProbe(headers: Record<string, string>) {
+    const probed = buildServer({ config: testConfig, nonceStore: new MemoryNonceStore(), logger: false });
+    probed.get("/probe", async () => ({ ok: true }));
+    const res = await probed.inject({ method: "GET", url: "/probe?x=1", headers: { ...auth, ...headers } });
+    await probed.close();
+    return { status: res.statusCode, body: res.json() as unknown };
+  }
+
+  it("lets an allowlisted session wallet through", async () => {
+    expect(await withProbe({ "x-soltracer-wallet": allowed.publicKey })).toEqual({ status: 200, body: { ok: true } });
+  });
+
+  it("refuses a wallet removed from the allowlist since sign-in", async () => {
+    const res = await withProbe({ "x-soltracer-wallet": stranger.publicKey });
+    expect(res.status).toBe(403);
+    expect(errorResponseSchema.parse(res.body).code).toBe("NOT_ALLOWLISTED");
+  });
+
+  it("refuses a missing or malformed wallet header", async () => {
+    const attempts: Record<string, string>[] = [{}, { "x-soltracer-wallet": "nope" }];
+    for (const headers of attempts) {
+      const res = await withProbe(headers);
+      expect(res.status).toBe(401);
+      expect(errorResponseSchema.parse(res.body).code).toBe("UNAUTHORIZED");
+    }
+  });
+
+  it("asks for a wallet before revealing whether a route exists", async () => {
+    const res = await app.inject({ method: "GET", url: "/nope", headers: auth });
+    expect(res.statusCode).toBe(401);
+    expect(errorResponseSchema.parse(res.json()).code).toBe("UNAUTHORIZED");
+  });
+
+  it("only exempts the exact public paths", async () => {
+    for (const url of ["/health/", "/%68ealth", "/auth/nonce/"]) {
+      const res = await app.inject({ method: "GET", url, headers: auth });
+      expect(res.statusCode).toBe(401);
+    }
+  });
+
+  it("does not require a wallet for /health and sign-in routes", async () => {
+    expect((await app.inject({ method: "GET", url: "/health", headers: auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/auth/nonce", headers: auth })).statusCode).toBe(200);
   });
 });

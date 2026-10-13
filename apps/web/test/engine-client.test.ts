@@ -21,6 +21,16 @@ describe("callEngine", () => {
     expect(seen?.headers.get("authorization")).toBe(`Bearer ${env.ENGINE_TOKEN}`);
   });
 
+  it("forwards the session wallet when given", async () => {
+    let seen: Request | undefined;
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen = new Request(input, init);
+      return respond(200, nonce)();
+    };
+    await callEngine(env, "/x", { method: "GET", wallet: "Wallet111" }, nonceResponseSchema, fetchImpl);
+    expect(seen?.headers.get("x-soltracer-wallet")).toBe("Wallet111");
+  });
+
   it("passes typed engine errors through with their status", async () => {
     const err = { ok: false, code: "NOT_ALLOWLISTED", message: "nope", details: null };
     const res = await callEngine(env, "/auth/verify", { method: "POST" }, nonceResponseSchema, respond(403, err));

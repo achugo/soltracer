@@ -12,7 +12,7 @@ export type EngineResult<T> = { status: number; body: T | ErrorResponse };
 export async function callEngine<S extends z.ZodType>(
   env: Pick<WebEnv, "ENGINE_URL" | "ENGINE_TOKEN">,
   path: string,
-  init: { method: "GET" | "POST"; body?: unknown },
+  init: { method: "GET" | "POST"; body?: unknown; /** Session wallet; the engine re-checks it against ALLOWLIST. */ wallet?: string },
   schema: S,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EngineResult<z.infer<S>>> {
@@ -22,6 +22,7 @@ export async function callEngine<S extends z.ZodType>(
       method: init.method,
       headers: {
         authorization: `Bearer ${env.ENGINE_TOKEN}`,
+        ...(init.wallet === undefined ? {} : { "x-soltracer-wallet": init.wallet }),
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
