@@ -1,6 +1,7 @@
 import { buildLoginMessage, errorResponseSchema, nonceResponseSchema, NONCE_TTL_MS } from "@soltracer/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RpcError } from "../src/rpc/client.ts";
 import { buildServer } from "../src/server.ts";
 import { allowed, ENGINE_TOKEN, stranger, testConfig } from "./helpers/fixtures.ts";
 import { MemoryNonceStore } from "./helpers/memory-nonce-store.ts";
@@ -268,5 +269,62 @@ describe("session wallet re-check", () => {
   it("does not require a wallet for /health and sign-in routes", async () => {
     expect((await app.inject({ method: "GET", url: "/health", headers: auth })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: "/auth/nonce", headers: auth })).statusCode).toBe(200);
+  });
+});
+
+describe("POST /simulate", () => {
+  const wallet = { "x-soltracer-wallet": allowed.publicKey };
+
+  async function withSimulate(simulate: NonNullable<Parameters<typeof buildServer>[0]["simulate"]>, payload: unknown) {
+    const server = buildServer({ config: testConfig, nonceStore: new MemoryNonceStore(), logger: false, simulate });
+    const res = await server.inject({ method: "POST", url: "/simulate", headers: { ...auth, ...wallet }, payload: payload as object });
+    await server.close();
+    return { status: res.statusCode, body: res.json() as unknown };
+  }
+
+  it("validates the body before simulating", async () => {
+    let called = false;
+    const sim = async () => {
+      called = true;
+      throw new Error("should not run");
+    };
+    for (const payload of [{}, { tx: "" }, { tx: "A".repeat(6001) }, { tx: "AQID", extra: 1 }]) {
+      const res = await withSimulate(sim, payload);
+      expect(res.status).toBe(400);
+      expect(errorResponseSchema.parse(res.body).code).toBe("VALIDATION_ERROR");
+    }
+    expect(called).toBe(false);
+  });
+
+  it("passes the trimmed transaction through and returns the simulator's typed errors", async () => {
+    let seen = "";
+    const res = await withSimulate(async (tx) => {
+      seen = tx;
+      return { ok: false, status: 400, error: { ok: false, code: "TX_DECODE_FAILED", message: "nope", details: { tried: [] } } };
+    }, { tx: "  AQID  " });
+    expect(seen).toBe("AQID");
+    expect(res).toEqual({ status: 400, body: { ok: false, code: "TX_DECODE_FAILED", message: "nope", details: { tried: [] } } });
+  });
+
+  it("maps RPC rate limiting to 503 and other RPC failures to 502, without internals", async () => {
+    const limited = await withSimulate(async () => {
+      throw new RpcError("RPC_RATE_LIMITED", "simulateTransaction", "simulateTransaction failed: 429");
+    }, { tx: "AQID" });
+    expect(limited.status).toBe(503);
+    expect(errorResponseSchema.parse(limited.body)).toMatchObject({ code: "RPC_RATE_LIMITED", details: { method: "simulateTransaction" } });
+
+    const failed = await withSimulate(async () => {
+      throw new RpcError("RPC_ERROR", "getMultipleAccounts", "getMultipleAccounts returned an error: boom", { jsonRpcCode: -32005 });
+    }, { tx: "AQID" });
+    expect(failed.status).toBe(502);
+    expect(errorResponseSchema.parse(failed.body)).toMatchObject({
+      code: "RPC_ERROR",
+      details: { method: "getMultipleAccounts", jsonRpcCode: -32005 },
+    });
+  });
+
+  it("is unavailable when the engine was started without a simulator", async () => {
+    const res = await app.inject({ method: "POST", url: "/simulate", headers: { ...auth, ...wallet }, payload: { tx: "AQID" } });
+    expect(res.statusCode).toBe(404);
   });
 });

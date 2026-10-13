@@ -32,6 +32,8 @@ export interface DecodedTransaction {
   signed: boolean;
   /** Canonical base64 wire form, for simulateTransaction. */
   wireBase64: string;
+  /** Base64 of the message bytes, for getFeeForMessage. */
+  messageBase64: string;
   header: {
     numSignerAccounts: number;
     numReadonlySignerAccounts: number;
@@ -91,6 +93,7 @@ function parseWire(bytes: Uint8Array, encoding: Encoding): DecodedTransaction {
     numSignatures: signatures.length,
     signed: signatures.some((s) => s !== null && s.some((b) => b !== 0)),
     wireBase64: Buffer.from(bytes).toString("base64"),
+    messageBase64: Buffer.from(tx.messageBytes).toString("base64"),
     header: { ...compiled.header },
     staticAccounts: [...compiled.staticAccounts],
     lookups,

@@ -1,4 +1,8 @@
 import { PgNonceStore } from "./auth/nonce-store.ts";
+import { createPgCaches } from "./cache/pg.ts";
+import { createRpcClient } from "./rpc/client.ts";
+import { createRateLimiter } from "./rpc/rate-limiter.ts";
+import { simulateWithRpc } from "./sim/rpc-simulator.ts";
 import { loadConfig } from "./config.ts";
 import { createDb } from "./db/client.ts";
 import { buildServer, ENGINE_HOST } from "./server.ts";
@@ -17,10 +21,23 @@ function configOrExit() {
 const config = configOrExit();
 const { db, close } = createDb(config.DATABASE_URL);
 const nonceStore = new PgNonceStore(db);
+const caches = createPgCaches(db);
+
+// The engine's only Helius client: 10 requests in any 1-second window, shared by every request.
+const rpc = createRpcClient({
+  url: config.HELIUS_RPC_URL,
+  limiter: createRateLimiter({ limit: 10, windowMs: 1000 }),
+  log: {
+    info: (obj, msg) => app.log.info(obj, msg),
+    warn: (obj, msg) => app.log.warn(obj, msg),
+  },
+});
+
 const app = buildServer({
   config,
   nonceStore,
   logger: { level: "info", redact: ["req.headers.authorization"] },
+  simulate: (tx, log) => simulateWithRpc(tx, rpc.session(), caches, log),
 });
 
 const prune = setInterval(() => {
