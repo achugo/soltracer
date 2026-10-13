@@ -84,7 +84,7 @@ Apply these in every phase.
 
 1. **One phase at a time.** Do not start the next phase until every acceptance criterion passes. Stop and report when a phase is done.
 2. **Fixtures before features.** Each decoder, simulator and optimizer gets tests against real mainnet transaction bytes saved in `test/fixtures/`, including at least one failure and one versioned transaction with lookup tables.
-3. **Never trust input.** Every API route parses with zod. Reject transactions over 1232 bytes. Detect base58 vs base64 and say which failed.
+3. **Never trust input.** Every API route parses with zod. Reject transactions over 1232 bytes (4096 for version-1 transactions). Detect base58 vs base64 and say which failed.
 4. **Budget RPC.** Batch account reads with `getMultipleAccounts` (100 per call). Cache immutable data (program IDLs, lookup tables, mint decimals) in Postgres. Log credit usage per request.
 5. **Typed errors.** The engine returns `{ ok: false, code, message, details }`, never a raw stack trace.
 6. **Never sign or send.** The tool returns transactions for the user's wallet to sign. It holds no private keys.
@@ -117,12 +117,12 @@ Acceptance:
 
 Goal: paste a transaction and see what it will do.
 
-- Decode base58 or base64 into a VersionedTransaction; resolve lookup tables to get the full account list.
-- Parse ComputeBudget instructions: CU limit (default 200k per non-budget instruction, max 1.4M) and CU price.
+- Decode base58 or base64 into a VersionedTransaction (legacy, v0 or v1); resolve lookup tables (v0) to get the full account list.
+- Parse ComputeBudget instructions (legacy/v0) or the message config (v1): CU limit (default 200k per non-budget instruction, max 1.4M), CU price or v1 total priority fee, and loaded-accounts data limit.
 - Fetch pre-state of all writable accounts with `getMultipleAccounts`.
 - `simulateTransaction` with `sigVerify: false`, `replaceRecentBlockhash: true`, and `accounts: { addresses: <writable>, encoding: 'base64' }`.
 - Diff pre vs. post: SOL lamports, and SPL Token plus Token-2022 balances (decode the token account layout, look up mint decimals).
-- Fee: `getFeeForMessage` for the base fee, plus CU limit × CU price for the priority fee.
+- Fee: `getFeeForMessage` for the base fee, plus CU limit × CU price for the priority fee (v1: the config's priority fee lamports).
 - Errors: map InstructionError to the instruction index and program. Decode Anchor error codes (6000+) using the program's on-chain IDL, plus built-in tables for System, SPL Token and Anchor framework errors.
 - UI:
   - Input textarea with encoding auto-detect.
@@ -189,7 +189,7 @@ Goal: watch your wallets and debug failures automatically.
 
 - Engine opens one Helius wss:// connection with a `logsSubscribe` per allowlisted wallet (`mentions` takes one pubkey each), commitment `confirmed`.
 - Auto-reconnect with backoff and resubscribe; fill any gap on reconnect with `getSignaturesForAddress`.
-- On each notification: store it, then hydrate with `getTransaction` (`maxSupportedTransactionVersion: 0`) for block time, balances and token changes.
+- On each notification: store it, then hydrate with `getTransaction` (`maxSupportedTransactionVersion: 1`) for block time, balances and token changes.
 - On failure: auto-run the Phase 3 engine against current state, labelled `best-effort`, and link the trace.
 - Push events to the UI over the engine's own WebSocket (via the web app, session-checked).
 - Feed UI: signature, time, status, SOL and token deltas, collapsible logs, link to the trace.

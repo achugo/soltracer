@@ -1,8 +1,16 @@
 import { z } from "zod";
 import { pubkeySchema } from "./solana.ts";
 
-/** Largest serialized transaction the network accepts. */
+/** Largest serialized legacy or v0 transaction the network accepts. */
 export const MAX_TX_BYTES = 1232;
+/** Version-1 transactions may be larger. */
+export const MAX_V1_TX_BYTES = 4096;
+
+export type TxVersion = "legacy" | 0 | 1;
+
+export function maxTxBytes(version: TxVersion): number {
+  return version === 1 ? MAX_V1_TX_BYTES : MAX_TX_BYTES;
+}
 /** Per-transaction compute unit ceiling. */
 export const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 /** Default limit per non-ComputeBudget instruction when none is set (per the build prompt). */
@@ -14,7 +22,8 @@ const u64 = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer strin
 const signedAmount = z.string().regex(/^-?\d{1,20}$/, "Must be an integer string");
 
 export const simulateRequestSchema = z.strictObject({
-  tx: z.string().trim().min(1, "Paste a transaction").max(2000, "Too long to be a transaction"),
+  // 4096 bytes is ~5.5k characters in base64 or base58.
+  tx: z.string().trim().min(1, "Paste a transaction").max(6000, "Too long to be a transaction"),
 });
 
 export const accountSourceSchema = z.discriminatedUnion("kind", [
@@ -33,7 +42,12 @@ export const computeBudgetSchema = z.object({
   limit: z.number().int().min(0).max(MAX_COMPUTE_UNIT_LIMIT),
   limitSource: z.enum(["explicit", "default"]),
   defaultLimit: z.number().int().min(0).max(MAX_COMPUTE_UNIT_LIMIT),
-  priceMicroLamports: u64,
+  /** Legacy/v0: SetComputeUnitPrice. Null for v1, which sets a total fee instead. */
+  priceMicroLamports: u64.nullable(),
+  /** Total priority fee: ceil(limit x price / 1e6) for legacy/v0, the config value for v1. */
+  priorityFeeLamports: u64,
+  /** v1 config or SetLoadedAccountsDataSizeLimit, when set. */
+  loadedAccountsDataSizeLimit: z.number().int().min(0).nullable(),
 });
 
 export const txErrorSchema = z.object({
@@ -82,7 +96,7 @@ export const simulationStatusSchema = z.discriminatedUnion("success", [
 export const simulationResultSchema = z.object({
   ok: z.literal(true),
   encoding: z.enum(["base64", "base58"]),
-  version: z.union([z.literal("legacy"), z.literal(0)]),
+  version: z.union([z.literal("legacy"), z.literal(0), z.literal(1)]),
   /** True when any signature slot is non-zero; rewriting would invalidate it. */
   signed: z.boolean(),
   accounts: z.array(accountRefSchema),
@@ -95,6 +109,18 @@ export const simulationResultSchema = z.object({
   slot: z.number().int().min(0),
   /** Helius credits this simulation spent. */
   credits: z.number().int().min(0),
+}).superRefine((r, ctx) => {
+  const v1 = r.version === 1;
+  if (v1 !== (r.computeBudget.priceMicroLamports === null)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["computeBudget", "priceMicroLamports"],
+      message: v1 ? "v1 transactions have no per-CU price" : "legacy/v0 transactions need a per-CU price (0 if unset)",
+    });
+  }
+  if (r.computeBudget.priorityFeeLamports !== r.fee.priorityLamports) {
+    ctx.addIssue({ code: "custom", path: ["fee", "priorityLamports"], message: "Must equal computeBudget.priorityFeeLamports" });
+  }
 });
 
 export type SimulateRequest = z.infer<typeof simulateRequestSchema>;
