@@ -7,7 +7,7 @@ Private Solana transaction debugger for one user. It simulates transactions in a
 - `docs/build-prompt.md`: stack, architecture, global rules, Phases 0–6 with acceptance criteria.
 - `docs/live-trace-view.md`: the live trace view, Steps 1–10 with exact commits. It replaces the trace viewer in Phase 4.
 - Before starting a phase or step, read its section in full. If these docs and this file disagree, the docs win; tell me about the conflict.
-- **Current work:** Phase 0 built on `feat/phase-0-scaffold`, awaiting review. Next: Phase 1 (update this line when a phase or step is done).
+- **Current work:** Phase 1 built on `feat/phase-1-sandbox` (branched from `feat/phase-0-scaffold`), awaiting review. Next: Phase 2 (update this line when a phase or step is done).
 
 ## Hard constraints
 
@@ -36,6 +36,8 @@ Node 22 (`.nvmrc`), pnpm 12 via corepack. Copy `.env.example` to `.env` at the r
 - `pnpm typecheck` / `pnpm lint` / `pnpm test`: engine tests need Postgres running (they use `soltracer_test`)
 - `pnpm e2e`: Playwright; starts its own engine (4100) and web (3100) with dummy env. First time: `pnpm --filter @soltracer/web exec playwright install chromium`
 - `pnpm check:bundle`: builds web and fails if any secret value is in browser-facing output
+- `pnpm --filter @soltracer/engine fixtures …`: find/record mainnet fixtures with your Helius key (spends credits; never run from tests). `find <kind>`, `record <sig> <name>`, `record-idl <program> <name>`, `simulate <name>` (records the simulator's RPC calls for replay)
+- e2e runs the engine against `apps/engine/scripts/fake-rpc.ts`, which replays `test/fixtures/sandbox/*.sim.json`; it never calls Helius
 
 ## How we work
 
