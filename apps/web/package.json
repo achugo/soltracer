@@ -16,6 +16,7 @@
     "@solana/wallet-adapter-react": "^0.15.40",
     "@solana/web3.js": "^1.99.0",
     "@soltracer/shared": "workspace:*",
+    "@tanstack/react-query": "^5.104.2",
     "bs58": "^6.0.0",
     "iron-session": "^9.0.1",
     "lucide-react": "^1.55.0",

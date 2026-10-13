@@ -1,4 +1,9 @@
 import { FlaskConical } from "lucide-react";
+import type { Metadata } from "next";
+import { QueryProvider } from "@/components/query-provider.tsx";
+import { Sandbox } from "@/components/sandbox/sandbox.tsx";
+
+export const metadata: Metadata = { title: "Sandbox · SolTracer" };
 
 export default function SandboxPage() {
   return (
@@ -7,7 +12,12 @@ export default function SandboxPage() {
         <FlaskConical className="size-5 text-violet-400" aria-hidden />
         Sandbox
       </h1>
-      <p className="text-sm text-neutral-400">Paste a transaction to simulate it. Arrives in Phase 1.</p>
+      <p className="mb-6 text-sm text-neutral-400">
+        Paste a transaction to see what it will do. Signatures are not checked and the blockhash is replaced.
+      </p>
+      <QueryProvider>
+        <Sandbox />
+      </QueryProvider>
     </section>
   );
 }
