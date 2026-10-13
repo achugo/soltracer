@@ -29,6 +29,13 @@ export default tseslint.config(
     },
   },
   {
+    // All Helius traffic goes through apps/engine/src/rpc (kit's transport); no ad-hoc fetch.
+    files: ["apps/engine/src/**/*.ts"],
+    rules: {
+      "no-restricted-globals": ["error", { name: "fetch", message: "Use the RPC client in src/rpc/." }],
+    },
+  },
+  {
     files: ["scripts/**/*.mjs", "**/*.config.{js,mjs,ts}"],
     languageOptions: { globals: { process: "readonly", console: "readonly", URL: "readonly" } },
     rules: { "no-console": "off" },
