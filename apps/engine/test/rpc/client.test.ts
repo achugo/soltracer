@@ -97,6 +97,18 @@ describe("createRpcClient", () => {
     expect(logs.at(-1)?.msg).toBe("rpc call returned an error");
   });
 
+  it("handles error bodies whose numbers were parsed as bigint", async () => {
+    const inner = (async ({ payload }: { payload: unknown }) => ({
+      jsonrpc: "2.0",
+      id: (payload as Payload).id,
+      error: { code: -32009n, message: "Slot skipped", data: { slot: 123n } },
+    })) as RpcTransport;
+    const { client } = makeClient(inner);
+    const err = await client.session().rpc.getBalance(address("11111111111111111111111111111111")).send().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RpcError);
+    expect((err as RpcError).details).toEqual({ jsonRpcCode: -32009 });
+  });
+
   it("maps HTTP 429 to RPC_RATE_LIMITED and strips the API key", async () => {
     const inner = (async () => {
       throw new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, {

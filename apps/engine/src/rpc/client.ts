@@ -14,7 +14,11 @@ import type { RateLimiter } from "./rate-limiter.ts";
 
 export type SolanaRpc = Rpc<SolanaRpcApi>;
 
-const jsonRpcErrorSchema = z.object({ code: z.number(), message: z.string() });
+// kit's transport parses JSON integers as bigint, so the code may arrive as either.
+const jsonRpcErrorSchema = z.object({ code: z.union([z.number(), z.bigint()]).transform(Number), message: z.string() });
+
+const stringifySafe = (value: unknown) =>
+  JSON.stringify(value, (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v));
 
 export interface RpcLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -100,7 +104,7 @@ export function createRpcClient({ url, limiter, log, transport }: RpcClientOptio
         if (typeof response === "object" && response !== null && "error" in response) {
           const rpcError = jsonRpcErrorSchema.safeParse(response.error);
           const code = rpcError.success ? rpcError.data.code : null;
-          const detail = redact(rpcError.success ? rpcError.data.message : JSON.stringify(response.error), url);
+          const detail = redact(rpcError.success ? rpcError.data.message : stringifySafe(response.error), url);
           log.warn({ rpc: method, credits: cost, durationMs, jsonRpcCode: code }, "rpc call returned an error");
           throw new RpcError("RPC_ERROR", method, `${method} returned an error: ${detail}`, { jsonRpcCode: code });
         }
