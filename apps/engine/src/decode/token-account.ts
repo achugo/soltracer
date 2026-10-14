@@ -68,3 +68,50 @@ export function parseMintDecimals(owner: Address, data: Uint8Array): number | nu
   if (!kind || !isMintLayout(kind, data) || data[45] !== 1) return null;
   return data[44] ?? null;
 }
+
+const ACCOUNT_STATES = ["uninitialized", "initialized", "frozen"] as const;
+
+/** COption<Pubkey>: a u32 tag, then 32 bytes. */
+function optionalAddress(data: Uint8Array, at: number): Address | null {
+  return data[at] === 1 ? addressDecoder.decode(data.subarray(at + 4, at + 36)) : null;
+}
+
+/** Every base field of an SPL Token or Token-2022 account (extensions are not decoded); null if not one. */
+export function decodeTokenAccountFields(
+  owner: Address,
+  data: Uint8Array,
+): { program: "token" | "token-2022"; fields: Record<string, string | null> } | null {
+  const kind = programKind(owner);
+  if (!kind || !isAccountLayout(kind, data)) return null;
+  const state = ACCOUNT_STATES[data[108] ?? -1];
+  if (!state) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    program: kind,
+    fields: {
+      mint: addressDecoder.decode(data.subarray(0, 32)),
+      owner: addressDecoder.decode(data.subarray(32, 64)),
+      amount: view.getBigUint64(64, true).toString(),
+      delegate: optionalAddress(data, 72),
+      state,
+      // COption<u64>: the rent-exempt reserve of a wrapped SOL account.
+      isNative: data[109] === 1 ? view.getBigUint64(113, true).toString() : null,
+      delegatedAmount: view.getBigUint64(121, true).toString(),
+      closeAuthority: optionalAddress(data, 129),
+    },
+  };
+}
+
+/** Every base field of an SPL Token or Token-2022 mint (extensions are not decoded); null if not one. */
+export function decodeMintFields(owner: Address, data: Uint8Array): Record<string, string | number | boolean | null> | null {
+  const kind = programKind(owner);
+  if (!kind || !isMintLayout(kind, data) || (data[45] !== 0 && data[45] !== 1)) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  return {
+    mintAuthority: optionalAddress(data, 0),
+    supply: view.getBigUint64(36, true).toString(),
+    decimals: data[44] ?? 0,
+    isInitialized: data[45] === 1,
+    freezeAuthority: optionalAddress(data, 46),
+  };
+}
