@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { MAX_INSTRUCTION_ACCOUNTS, type DecodedInstruction, type DecodedValue } from "@soltracer/shared/trace";
 import { z } from "zod";
-import { BorshError, BorshReader, readValue, type IdlTypeDefs } from "./borsh.ts";
+import { cleanText } from "../text/clean.ts";
+import { BorshError, BorshReader, MAX_IDL_NAME_CHARS, readValue, type IdlTypeDefs } from "./borsh.ts";
 import { IdlParseError } from "./idl.ts";
 
 /**
@@ -10,24 +11,31 @@ import { IdlParseError } from "./idl.ts";
  * It is plain JSON, so it can be cached in jsonb and validated on the way back out.
  */
 const discriminator = z.array(z.number().int().min(0).max(255)).min(1).max(32);
+/** IDL identifiers are short; capping them bounds every name the decoder can emit. */
+const name = z.string().min(1).max(MAX_IDL_NAME_CHARS);
+/** Most instructions, accounts, types or arguments taken from one IDL (real IDLs have tens). */
+const MAX_IDL_ENTRIES = 2000;
+const MAX_IDL_ARGS = 256;
+/** Longest flattened account name ("group.sub.name"). */
+const MAX_FLAT_NAME_CHARS = 256;
 
 export const normalizedIdlSchema = z.object({
   instructions: z.array(
     z.object({
-      name: z.string().min(1),
+      name,
       discriminator,
       /** Flattened account names, in order; nested groups are "group.name". */
-      accounts: z.array(z.string()),
-      args: z.array(z.object({ name: z.string(), type: z.json() })),
+      accounts: z.array(z.string().max(MAX_FLAT_NAME_CHARS)).max(MAX_INSTRUCTION_ACCOUNTS),
+      args: z.array(z.object({ name, type: z.json() })).max(MAX_IDL_ARGS),
     }),
-  ),
-  accounts: z.array(z.object({ name: z.string().min(1), discriminator })),
-  types: z.array(z.object({ name: z.string().min(1), type: z.json() })),
+  ).max(MAX_IDL_ENTRIES),
+  accounts: z.array(z.object({ name, discriminator })).max(MAX_IDL_ENTRIES),
+  types: z.array(z.object({ name, type: z.json() })).max(MAX_IDL_ENTRIES * 2),
 });
 export type NormalizedIdl = z.infer<typeof normalizedIdlSchema>;
 
 const rawAccountItem: z.ZodType<RawAccountItem> = z.lazy(() =>
-  z.object({ name: z.string(), accounts: z.array(rawAccountItem).optional() }),
+  z.object({ name, accounts: z.array(rawAccountItem).max(MAX_INSTRUCTION_ACCOUNTS).optional() }),
 );
 interface RawAccountItem {
   name: string;
@@ -37,14 +45,14 @@ interface RawAccountItem {
 const rawIdlSchema = z.object({
   instructions: z.array(
     z.object({
-      name: z.string().min(1),
+      name,
       discriminator: discriminator.optional(),
-      accounts: z.array(rawAccountItem).default([]),
-      args: z.array(z.object({ name: z.string(), type: z.json() })).default([]),
+      accounts: z.array(rawAccountItem).max(MAX_INSTRUCTION_ACCOUNTS).default([]),
+      args: z.array(z.object({ name, type: z.json() })).max(MAX_IDL_ARGS).default([]),
     }),
-  ),
-  accounts: z.array(z.object({ name: z.string().min(1), discriminator: discriminator.optional(), type: z.json().optional() })).default([]),
-  types: z.array(z.object({ name: z.string().min(1), type: z.json() })).default([]),
+  ).max(MAX_IDL_ENTRIES),
+  accounts: z.array(z.object({ name, discriminator: discriminator.optional(), type: z.json().optional() })).max(MAX_IDL_ENTRIES).default([]),
+  types: z.array(z.object({ name, type: z.json() })).max(MAX_IDL_ENTRIES).default([]),
 });
 
 /** Deepest JSON nesting accepted in an IDL; real IDLs stay far below it, and zod's recursion stays safe. */
@@ -72,10 +80,19 @@ function snakeCase(name: string): string {
     .toLowerCase();
 }
 
-function flattenAccounts(items: readonly RawAccountItem[], prefix = ""): string[] {
-  return items.flatMap((item) =>
-    item.accounts ? flattenAccounts(item.accounts, `${prefix}${item.name}.`) : [`${prefix}${item.name}`],
-  );
+/** Flattened account names, at most MAX_INSTRUCTION_ACCOUNTS of at most MAX_FLAT_NAME_CHARS each. */
+function flattenAccounts(items: readonly RawAccountItem[]): string[] {
+  const names: string[] = [];
+  const walk = (list: readonly RawAccountItem[], prefix: string) => {
+    for (const item of list) {
+      if (names.length >= MAX_INSTRUCTION_ACCOUNTS) return;
+      const full = `${prefix}${cleanText(item.name)}`.slice(0, MAX_FLAT_NAME_CHARS);
+      if (item.accounts) walk(item.accounts, `${full}.`);
+      else names.push(full);
+    }
+  };
+  walk(items, "");
+  return names;
 }
 
 /** Parses inflated IDL JSON (either format). Throws IdlParseError when it isn't an IDL. */
@@ -84,18 +101,19 @@ export function normalizeIdl(json: unknown): NormalizedIdl {
   const raw = rawIdlSchema.safeParse(json);
   if (!raw.success) throw new IdlParseError("IDL JSON has an unexpected shape");
   const { instructions, accounts, types } = raw.data;
+  const typeNames = new Set(types.map((t) => t.name));
   return {
     instructions: instructions.map((ix) => ({
-      name: ix.name,
+      name: cleanText(ix.name),
       discriminator: ix.discriminator ?? sighash(`global:${snakeCase(ix.name)}`),
       accounts: flattenAccounts(ix.accounts),
-      args: ix.args,
+      args: ix.args.map((arg) => ({ name: cleanText(arg.name), type: arg.type })),
     })),
     accounts: accounts.map((a) => ({ name: a.name, discriminator: a.discriminator ?? sighash(`account:${a.name}`) })),
     // Legacy IDLs define account types inline; the current format puts them in `types`.
     types: [
       ...types,
-      ...accounts.flatMap((a) => (a.type !== undefined && !types.some((t) => t.name === a.name) ? [{ name: a.name, type: a.type }] : [])),
+      ...accounts.flatMap((a) => (a.type !== undefined && !typeNames.has(a.name) ? [{ name: a.name, type: a.type }] : [])),
     ],
   };
 }
@@ -151,7 +169,7 @@ export function decodeIdlAccount(idl: NormalizedIdl, data: Uint8Array): { type: 
     const value = readValue(new BorshReader(data, account.discriminator.length), { defined: { name: account.name } }, typeDefs(idl));
     // Only named structs have fields to show; anything else renders raw.
     if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-    return { type: account.name, fields: value };
+    return { type: cleanText(account.name), fields: value };
   } catch (err) {
     if (err instanceof BorshError) return null;
     throw err;

@@ -5,7 +5,7 @@ import type { IdlCacheEntry, SandboxCaches } from "../cache/types.ts";
 import { builtinCustomError, SYSTEM_PROGRAM } from "../decode/builtin-errors.ts";
 import { anchorIdlAddress } from "../decode/idl-address.ts";
 import { normalizeIdl, type NormalizedIdl } from "../decode/idl-full.ts";
-import { idlErrorsFromJson, IdlParseError, inflateIdl } from "../decode/idl.ts";
+import { idlErrorsFromJson, inflateIdl } from "../decode/idl.ts";
 import { describeFailure, locateFailure } from "../decode/program-error.ts";
 import { parseMintDecimals, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from "../decode/token-account.ts";
 import type { AccountState, SolChange, TokenChange } from "../diff/balances.ts";
@@ -121,18 +121,33 @@ export async function loadIdl(session: RpcSession, caches: SandboxCaches, progra
   // The IDL account is created by the program and owned by it; anything else isn't its IDL.
   const value = account.value?.owner === program ? account.value : null;
   const entry = idlEntryFrom(value ? new Uint8Array(base64.encode(value.data[0])) : null);
-  await caches.idls.put(program, entry);
+  await cacheIdl(caches, program, entry);
   return entry;
 }
 
-/** A cache entry from an IDL account's data (null: no account). Unreadable IDLs count as absent. */
+/**
+ * Caching is an optimisation: a write that fails (say, text Postgres won't store) must not fail
+ * the run. The error is not logged: drizzle's message carries the query parameters (the whole IDL).
+ */
+async function cacheIdl(caches: SandboxCaches, program: Address, entry: IdlCacheEntry): Promise<void> {
+  try {
+    await caches.idls.put(program, entry);
+  } catch {
+    // The entry is still used for this run.
+  }
+}
+
+/**
+ * A cache entry from an IDL account's data (null: no account). The data is the program author's, so
+ * any failure to read it (not only IdlParseError: a hostile IDL can exhaust string or stack limits)
+ * counts as no IDL rather than failing the run.
+ */
 function idlEntryFrom(data: Uint8Array | null): IdlCacheEntry {
   if (!data) return { found: false };
   try {
     const json = inflateIdl(data);
     return { found: true, errors: idlErrorsFromJson(json), idl: decodingIdl(json) };
-  } catch (err) {
-    if (!(err instanceof IdlParseError)) throw err;
+  } catch {
     return { found: false };
   }
 }
@@ -161,7 +176,7 @@ export async function loadDecodingIdls(
   for (const [i, program] of missing.entries()) {
     const account = accounts[i];
     const entry = idlEntryFrom(account?.owner === program ? account.data : null);
-    await caches.idls.put(program, entry);
+    await cacheIdl(caches, program, entry);
     if (entry.found && entry.idl) idls.set(program, entry.idl);
   }
   return idls;
@@ -172,9 +187,8 @@ function decodingIdl(json: unknown): NormalizedIdl | null {
   try {
     const idl = normalizeIdl(json);
     return JSON.stringify(idl).length <= MAX_STORED_IDL_CHARS ? idl : null;
-  } catch (err) {
-    if (err instanceof IdlParseError) return null;
-    throw err;
+  } catch {
+    return null; // see idlEntryFrom: never let the author's data fail the run
   }
 }
 

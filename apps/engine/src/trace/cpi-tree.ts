@@ -9,6 +9,7 @@ import {
   type TraceNodeStatus,
 } from "@soltracer/shared/trace";
 import type { Address } from "@solana/kit";
+import { cleanText } from "../text/clean.ts";
 
 // Program ids are base58; anything else is an ordinary log line.
 const ID = "([1-9A-HJ-NP-Za-km-z]{32,44})";
@@ -73,7 +74,8 @@ export function buildCpiTree({ logs, programs, failed, failedInstruction }: CpiT
   }
 
   function log(node: TraceNode, line: string) {
-    if (node.logs.length < MAX_NODE_LOGS) node.logs.push(line.slice(0, MAX_LOG_LINE_CHARS));
+    // cleanText also repairs a surrogate pair the cut may split.
+    if (node.logs.length < MAX_NODE_LOGS) node.logs.push(cleanText(line.slice(0, MAX_LOG_LINE_CHARS)));
     else node.logsDropped += 1;
   }
 

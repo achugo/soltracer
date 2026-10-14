@@ -36,6 +36,12 @@ describe("PgRunStore", () => {
     expect(await store.get("not-a-uuid", WALLET)).toBeNull();
   });
 
+  it("stores program text Postgres would reject (U+0000, lone surrogates) with U+FFFD in its place", async () => {
+    const result = { ...RESULT, logs: ["Program log: a\u0000b", "Program log: \ud800"] } as unknown as SimulationResult;
+    const id = await store.create({ wallet: WALLET, engine: "local", input: "AQID", overrides: [], result });
+    expect((await store.get(id, WALLET))?.result.logs).toEqual(["Program log: a\ufffdb", "Program log: \ufffd"]);
+  });
+
   it("gives every run a different id", async () => {
     const ids = await Promise.all(
       Array.from({ length: 20 }, () => store.create({ wallet: WALLET, engine: "rpc", input: "AQID", overrides: [], result: RESULT })),

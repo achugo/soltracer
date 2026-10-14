@@ -1,5 +1,6 @@
 import { MAX_DECODED_DEPTH, type DecodedValue } from "@soltracer/shared/trace";
 import { getAddressDecoder } from "@solana/kit";
+import { cleanText } from "../text/clean.ts";
 
 /**
  * Borsh decoding driven by Anchor IDL type expressions, both the current format
@@ -19,6 +20,10 @@ export const MAX_DECODED_ELEMENTS = 1024;
 export const MAX_DECODED_BYTES = 1024;
 /** Most values decoded in one call: zero-sized elements would otherwise multiply without reading data. */
 export const MAX_DECODED_VALUES = 4096;
+/** Most characters of output (strings, hex, numbers, keys) one call may produce; names repeat for free otherwise. */
+export const MAX_DECODED_CHARS = 64 * 1024;
+/** Longest field or variant name used as output; IDL identifiers are short. */
+export const MAX_IDL_NAME_CHARS = 128;
 /** Most nested type expressions followed (bounds alias chains and self-references). */
 const MAX_TYPE_NESTING = 64;
 
@@ -44,6 +49,8 @@ export class BorshReader {
   offset: number;
   /** Values decoded so far through this reader; capped at MAX_DECODED_VALUES. */
   values = 0;
+  /** Output characters produced so far; capped at MAX_DECODED_CHARS. */
+  chars = 0;
   constructor(
     readonly data: Uint8Array,
     offset = 0,
@@ -70,6 +77,19 @@ export class BorshReader {
   u32(): number {
     return Number(this.int(4, false));
   }
+
+  /** Counts output text against the budget; returns it unchanged. */
+  emit<T extends string>(text: T): T {
+    this.chars += text.length;
+    if (this.chars > MAX_DECODED_CHARS) throw new BorshError(`Decoded output exceeds ${MAX_DECODED_CHARS} characters`);
+    return text;
+  }
+}
+
+/** A field or variant name from the IDL, checked and counted. */
+function idlName(reader: BorshReader, name: unknown): string {
+  if (typeof name !== "string" || name.length === 0 || name.length > MAX_IDL_NAME_CHARS) throw new BorshError("Invalid IDL name");
+  return reader.emit(cleanText(name));
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -104,7 +124,7 @@ export function readValue(reader: BorshReader, type: unknown, types: IdlTypeDefs
     const int = INTS[type];
     if (int) {
       const v = reader.int(int.bytes, int.signed);
-      return int.bytes <= 4 ? Number(v) : v.toString();
+      return int.bytes <= 4 ? Number(v) : reader.emit(v.toString());
     }
     switch (type) {
       case "bool": {
@@ -117,23 +137,23 @@ export function readValue(reader: BorshReader, type: unknown, types: IdlTypeDefs
         const raw = reader.take(type === "f32" ? 4 : 8);
         const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
         const f = type === "f32" ? view.getFloat32(0, true) : view.getFloat64(0, true);
-        return Number.isFinite(f) ? f : String(f);
+        return Number.isFinite(f) ? f : reader.emit(String(f));
       }
       case "string":
       case "bytes": {
         const n = reader.u32();
         if (n > MAX_DECODED_BYTES) throw new BorshError(`${type} of ${n} bytes; at most ${MAX_DECODED_BYTES} are decoded`);
         const raw = reader.take(n);
-        if (type === "bytes") return Buffer.from(raw).toString("hex");
+        if (type === "bytes") return reader.emit(Buffer.from(raw).toString("hex"));
         try {
-          return utf8.decode(raw);
+          return reader.emit(cleanText(utf8.decode(raw)));
         } catch {
           throw new BorshError("string is not UTF-8");
         }
       }
       case "pubkey":
       case "publicKey":
-        return addressDecoder.decode(reader.take(32));
+        return reader.emit(addressDecoder.decode(reader.take(32)));
       default:
         throw new BorshError(`Unknown type ${type}`);
     }
@@ -182,7 +202,7 @@ function readFields(reader: BorshReader, fields: unknown, types: IdlTypeDefs, le
   if (fields.every((f) => isRecord(f) && typeof f.name === "string")) {
     // fromEntries makes own properties, so a field named "__proto__" is kept rather than swallowed.
     return Object.fromEntries(
-      (fields as Record<string, unknown>[]).map((f) => [f.name as string, readValue(reader, f.type, types, level, nesting + 1)]),
+      (fields as Record<string, unknown>[]).map((f) => [idlName(reader, f.name), readValue(reader, f.type, types, level, nesting + 1)]),
     );
   }
   return fields.map((f) => readValue(reader, f, types, level, nesting + 1));
@@ -203,9 +223,10 @@ function readDefined(reader: BorshReader, def: unknown, types: IdlTypeDefs, leve
       const index = reader.take(1)[0] ?? -1;
       const variant: unknown = variants[index];
       if (!isRecord(variant) || typeof variant.name !== "string") throw new BorshError(`Invalid enum variant ${index}`);
-      if (variant.fields === undefined) return variant.name;
+      if (variant.fields === undefined) return idlName(reader, variant.name);
       if (level + 2 > MAX_DECODED_DEPTH) throw new BorshError(`Value nests deeper than ${MAX_DECODED_DEPTH} levels`);
-      return { [variant.name]: readFields(reader, variant.fields, types, level + 2, nesting) };
+      const name = idlName(reader, variant.name);
+      return { [name]: readFields(reader, variant.fields, types, level + 2, nesting) };
     }
     case "type":
       return readValue(reader, def.alias, types, level, nesting + 1);

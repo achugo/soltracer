@@ -3,6 +3,7 @@ import type { Override, SimulationResult } from "@soltracer/shared/simulation";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
+import { cleanJson } from "../text/clean.ts";
 import { runs } from "../db/schema.ts";
 
 export interface NewRun {
@@ -31,7 +32,8 @@ export class PgRunStore implements RunStore {
 
   async create(run: NewRun): Promise<string> {
     const id = randomUUID();
-    await this.db.insert(runs).values({ id, ...run });
+    // Program logs and decoded strings may hold text jsonb rejects (U+0000, lone surrogates).
+    await this.db.insert(runs).values({ id, ...run, result: cleanJson(run.result) });
     return id;
   }
 

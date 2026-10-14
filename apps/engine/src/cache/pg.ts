@@ -3,6 +3,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { normalizedIdlSchema } from "../decode/idl-full.ts";
+import { cleanJson } from "../text/clean.ts";
 import { idlCache, lookupTableCache, mintCache } from "../db/schema.ts";
 import { isIdlFresh, type SandboxCaches } from "./types.ts";
 
@@ -63,7 +64,8 @@ export function createPgCaches(db: Db): SandboxCaches {
         const errors = entry.found
           ? [...entry.errors].map(([code, e]): [number, string, string] => [code, e.name, e.message])
           : null;
-        const idl = entry.found ? entry.idl : null;
+        // An IDL's type expressions are the author's JSON; strings jsonb rejects are replaced.
+        const idl = entry.found && entry.idl ? cleanJson(entry.idl) : null;
         const values = { program, found: entry.found, errors, idl, fetchedAt: new Date() };
         await db
           .insert(idlCache)
