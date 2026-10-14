@@ -1,4 +1,5 @@
 import type { Address } from "@solana/kit";
+import type { NormalizedIdl } from "../decode/idl-full.ts";
 import type { IdlErrorInfo } from "../decode/idl.ts";
 
 export interface MintInfo {
@@ -6,7 +7,10 @@ export interface MintInfo {
   program: "token" | "token-2022";
 }
 
-export type IdlCacheEntry = { found: false } | { found: true; errors: Map<number, IdlErrorInfo> };
+/** A found IDL's `idl` is null when it is too large to keep or not in a format we decode. */
+export type IdlCacheEntry =
+  | { found: false }
+  | { found: true; errors: Map<number, IdlErrorInfo>; idl: NormalizedIdl | null };
 
 /** Immutable-ish chain data the sandbox reuses across runs to save RPC credits. */
 export interface SandboxCaches {

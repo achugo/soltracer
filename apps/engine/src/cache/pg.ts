@@ -2,6 +2,7 @@ import type { Address } from "@solana/kit";
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client.ts";
+import { normalizedIdlSchema } from "../decode/idl-full.ts";
 import { idlCache, lookupTableCache, mintCache } from "../db/schema.ts";
 import { isIdlFresh, type SandboxCaches } from "./types.ts";
 
@@ -50,18 +51,24 @@ export function createPgCaches(db: Db): SandboxCaches {
         if (!row.found) return { found: false };
         // jsonb is only typed at compile time; treat a malformed row as a cache miss.
         const errors = storedIdlErrors.safeParse(row.errors ?? []);
-        if (!errors.success) return undefined;
-        return { found: true, errors: new Map(errors.data.map(([code, name, message]) => [code, { name, message }])) };
+        const idl = row.idl === null ? null : normalizedIdlSchema.safeParse(row.idl);
+        if (!errors.success || idl?.success === false) return undefined;
+        return {
+          found: true,
+          errors: new Map(errors.data.map(([code, name, message]) => [code, { name, message }])),
+          idl: idl?.data ?? null,
+        };
       },
       async put(program, entry) {
         const errors = entry.found
           ? [...entry.errors].map(([code, e]): [number, string, string] => [code, e.name, e.message])
           : null;
-        const values = { program, found: entry.found, errors, fetchedAt: new Date() };
+        const idl = entry.found ? entry.idl : null;
+        const values = { program, found: entry.found, errors, idl, fetchedAt: new Date() };
         await db
           .insert(idlCache)
           .values(values)
-          .onConflictDoUpdate({ target: idlCache.program, set: { found: values.found, errors, fetchedAt: values.fetchedAt } });
+          .onConflictDoUpdate({ target: idlCache.program, set: { found: values.found, errors, idl, fetchedAt: values.fetchedAt } });
       },
     },
   };

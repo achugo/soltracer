@@ -1,10 +1,11 @@
 import type { ErrorResponse } from "@soltracer/shared/errors";
 import type { SimulationResult, TxError } from "@soltracer/shared/simulation";
 import { getBase64Encoder, type Address } from "@solana/kit";
-import type { SandboxCaches } from "../cache/types.ts";
+import type { IdlCacheEntry, SandboxCaches } from "../cache/types.ts";
 import { builtinCustomError, SYSTEM_PROGRAM } from "../decode/builtin-errors.ts";
 import { anchorIdlAddress } from "../decode/idl-address.ts";
-import { IdlParseError, parseIdlErrors } from "../decode/idl.ts";
+import { normalizeIdl, type NormalizedIdl } from "../decode/idl-full.ts";
+import { idlErrorsFromJson, IdlParseError, inflateIdl } from "../decode/idl.ts";
 import { describeFailure, locateFailure } from "../decode/program-error.ts";
 import { parseMintDecimals, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from "../decode/token-account.ts";
 import type { AccountState, SolChange, TokenChange } from "../diff/balances.ts";
@@ -87,24 +88,42 @@ export async function loadDecimals(session: RpcSession, caches: SandboxCaches, m
   return known;
 }
 
+/** Largest normalized IDL kept for decoding (as JSON text); larger ones keep only their errors. */
+export const MAX_STORED_IDL_CHARS = 1024 * 1024;
+
+/** A program's Anchor IDL, from cache or one account read (1 credit). */
+export async function loadIdl(session: RpcSession, caches: SandboxCaches, program: Address): Promise<IdlCacheEntry> {
+  const cached = await caches.idls.get(program);
+  if (cached) return cached;
+  const account = await session.rpc.getAccountInfo(await anchorIdlAddress(program), { encoding: "base64" }).send();
+  let entry: IdlCacheEntry = { found: false };
+  if (account.value) {
+    try {
+      const json = inflateIdl(new Uint8Array(base64.encode(account.value.data[0])));
+      entry = { found: true, errors: idlErrorsFromJson(json), idl: decodingIdl(json) };
+    } catch (err) {
+      if (!(err instanceof IdlParseError)) throw err;
+    }
+  }
+  await caches.idls.put(program, entry);
+  return entry;
+}
+
+/** The IDL's decoding half; null (errors only) when it isn't an IDL we decode or is too large to keep. */
+function decodingIdl(json: unknown): NormalizedIdl | null {
+  try {
+    const idl = normalizeIdl(json);
+    return JSON.stringify(idl).length <= MAX_STORED_IDL_CHARS ? idl : null;
+  } catch (err) {
+    if (err instanceof IdlParseError) return null;
+    throw err;
+  }
+}
+
 /** IDL error table for a program that raised a custom error, from cache or one account read. */
 export async function loadIdlErrors(session: RpcSession, caches: SandboxCaches, program: Address) {
-  const cached = await caches.idls.get(program);
-  if (cached) return cached.found ? cached.errors : null;
-  const account = await session.rpc.getAccountInfo(await anchorIdlAddress(program), { encoding: "base64" }).send();
-  if (!account.value) {
-    await caches.idls.put(program, { found: false });
-    return null;
-  }
-  try {
-    const errors = parseIdlErrors(new Uint8Array(base64.encode(account.value.data[0])));
-    await caches.idls.put(program, { found: true, errors });
-    return errors;
-  } catch (err) {
-    if (!(err instanceof IdlParseError)) throw err;
-    await caches.idls.put(program, { found: false });
-    return null;
-  }
+  const entry = await loadIdl(session, caches, program);
+  return entry.found ? entry.errors : null;
 }
 
 

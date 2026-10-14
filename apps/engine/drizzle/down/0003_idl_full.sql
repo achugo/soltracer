@@ -1,0 +1,1 @@
+ALTER TABLE "idl_cache" DROP COLUMN IF EXISTS "idl";
