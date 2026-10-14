@@ -38,8 +38,17 @@ describe("describeApiError", () => {
     expect(view).toMatchObject({ signIn: true, retryable: false });
   });
 
+  it("explains LOCAL_LOAD_FAILED and how to fall back", () => {
+    const view = describeApiError(makeError("LOCAL_LOAD_FAILED", "accounts unavailable"));
+    expect(view.message).toBe("accounts unavailable");
+    expect(view.hint).toBe(
+      "Couldn't load mainnet state locally, so overrides can't be applied. Remove the overrides to fall back to RPC.",
+    );
+    expect(view.retryable).toBe(true);
+  });
+
   it("keeps the server message for every code", () => {
-    for (const code of ["VALIDATION_ERROR", "RPC_ERROR", "NOT_ALLOWLISTED", "ENGINE_UNAVAILABLE", "INTERNAL"] as const) {
+    for (const code of ["VALIDATION_ERROR", "RPC_ERROR", "NOT_ALLOWLISTED", "ENGINE_UNAVAILABLE", "LOCAL_LOAD_FAILED", "INTERNAL"] as const) {
       expect(describeApiError(makeError(code, `msg ${code}`)).message).toBe(`msg ${code}`);
     }
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { handleSimulate } from "../lib/simulate-route.ts";
-import { PAYER, simulationResult } from "./fixtures-simulation.ts";
+import { PAYER, simulationResult, USDC } from "./fixtures-simulation.ts";
 
 const env = { ENGINE_URL: "http://127.0.0.1:4000", ENGINE_TOKEN: "t".repeat(32) };
 const session = { publicKey: PAYER, signedInAt: "2026-10-13T12:00:00.000Z" };
@@ -61,5 +61,31 @@ describe("handleSimulate", () => {
     const res = await handleSimulate({ session, body: { tx: "AQID" }, env, fetchImpl });
     expect(res.status).toBe(502);
     expect(res.body).toMatchObject({ ok: false, code: "INTERNAL" });
+  });
+
+  it("forwards the engine choice and overrides", async () => {
+    const overrides = [
+      { kind: "sol", address: PAYER, lamports: "5000000000" },
+      { kind: "token", owner: PAYER, mint: USDC, amount: "1000000" },
+    ];
+    const { calls, fetchImpl } = recordingFetch(200, simulationResult({ engine: "local" }));
+    const res = await handleSimulate({ session, body: { tx: "AQID", engine: "local", overrides }, env, fetchImpl });
+    expect(res.status).toBe(200);
+    expect(await calls[0]?.json()).toEqual({ tx: "AQID", engine: "local", overrides });
+  });
+
+  it("forwards an rpc request without overrides", async () => {
+    const { calls, fetchImpl } = recordingFetch(200, simulationResult());
+    await handleSimulate({ session, body: { tx: "AQID", engine: "rpc" }, env, fetchImpl });
+    expect(await calls[0]?.json()).toEqual({ tx: "AQID", engine: "rpc", overrides: [] });
+  });
+
+  it("rejects overrides on rpc before calling the engine", async () => {
+    const { calls, fetchImpl } = recordingFetch(200, simulationResult());
+    const body = { tx: "AQID", engine: "rpc", overrides: [{ kind: "sol", address: PAYER, lamports: "1" }] };
+    const res = await handleSimulate({ session, body, env, fetchImpl });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ ok: false, code: "VALIDATION_ERROR" });
+    expect(calls).toHaveLength(0);
   });
 });

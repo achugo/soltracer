@@ -14,7 +14,7 @@ function fixtureTx(name: string): string {
 }
 
 async function simulateThenOptimize(page: Page, tx: string) {
-  await page.getByLabel(/Transaction/).fill(tx);
+  await page.getByRole("textbox", { name: /^Transaction/ }).fill(tx);
   await page.getByRole("button", { name: /simulate/i }).click();
   await expect(page.getByRole("region", { name: "Status" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Optimize for landing" }).click();

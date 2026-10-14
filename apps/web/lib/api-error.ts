@@ -76,7 +76,14 @@ export function describeApiError(err: ErrorResponse, action: ApiAction = "simula
       };
     }
     case "VALIDATION_ERROR":
-      return { ...base, title: "Invalid input", hint: "Check the pasted transaction and try again." };
+      return { ...base, title: "Invalid input", hint: "Check the pasted transaction and any overrides, then try again." };
+    case "LOCAL_LOAD_FAILED":
+      return {
+        ...base,
+        title: "Local run unavailable",
+        hint: "Couldn't load mainnet state locally, so overrides can't be applied. Remove the overrides to fall back to RPC.",
+        retryable: true,
+      };
     case "RPC_RATE_LIMITED":
       return { ...base, title: "Rate limited", hint: "The RPC rate limit was hit. Wait a few seconds, then retry.", retryable: true };
     case "RPC_ERROR":

@@ -39,15 +39,30 @@ describe("postSimulate", () => {
       seen = new Request(new URL(String(input), "http://localhost"), init);
       return json(200, simulationResult())();
     };
-    const out = await postSimulate("AQID", fetchImpl);
+    const out = await postSimulate({ tx: "AQID" }, fetchImpl);
     expect(out.ok).toBe(true);
     expect(seen?.url).toBe("http://localhost/api/simulate");
     expect(seen?.method).toBe("POST");
     expect(await seen?.json()).toEqual({ tx: "AQID" });
   });
 
+  it("sends the engine and overrides", async () => {
+    let body: unknown;
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return json(200, simulationResult())();
+    };
+    const request = {
+      tx: "AQID",
+      engine: "local" as const,
+      overrides: [{ kind: "sol" as const, address: "Vote111111111111111111111111111111111111111", lamports: "1000000000" }],
+    };
+    await postSimulate(request, fetchImpl);
+    expect(body).toEqual(request);
+  });
+
   it("turns a network failure into a typed error", async () => {
-    const out = await postSimulate("AQID", async () => {
+    const out = await postSimulate({ tx: "AQID" }, async () => {
       throw new TypeError("fetch failed");
     });
     expect(out).toMatchObject({ ok: false, code: "ENGINE_UNAVAILABLE" });
@@ -55,6 +70,6 @@ describe("postSimulate", () => {
 
   it("passes error statuses through as typed errors", async () => {
     const err = { ok: false, code: "TX_DECODE_FAILED", message: "nope", details: { tried: [] } };
-    expect(await postSimulate("zz", json(400, err))).toEqual(err);
+    expect(await postSimulate({ tx: "zz" }, json(400, err))).toEqual(err);
   });
 });
