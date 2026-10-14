@@ -92,7 +92,8 @@ export type FeePayerCheck =
 
 /** The wallet can only sign the rewritten transaction if it is the fee payer (account 0). */
 export function checkFeePayer(result: OptimizeResult, wallet: string | null): FeePayerCheck {
-  const feePayer = result.before.accounts[0]?.address ?? null;
+  // The chosen preset's accounts; the engine guarantees every preset keeps the same payer and signers.
+  const feePayer = result.after.accounts[0]?.address ?? null;
   if (wallet === null) return { kind: "no-wallet", feePayer };
   if (feePayer === null) return { kind: "unknown" };
   return feePayer === wallet ? { kind: "match", feePayer } : { kind: "mismatch", feePayer, wallet };
@@ -116,7 +117,8 @@ export function sendBlock(result: OptimizeResult, wallet: string): SendBlock | n
   if (payer.kind !== "match") {
     return { kind: "fee-payer", message: "The connected wallet is not the fee payer." };
   }
-  const signers = otherRequiredSigners(result.before.accounts, wallet);
+  // The chosen preset's accounts; the engine guarantees every preset keeps the same payer and signers.
+  const signers = otherRequiredSigners(result.after.accounts, wallet);
   if (signers.length > 0) {
     return {
       kind: "other-signers",

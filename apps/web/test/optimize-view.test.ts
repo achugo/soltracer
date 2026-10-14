@@ -72,7 +72,7 @@ describe("checkFeePayer", () => {
   it("reports no wallet and no accounts", () => {
     expect(checkFeePayer(optimizeResult(), null)).toEqual({ kind: "no-wallet", feePayer: PAYER });
     const r = optimizeResult();
-    expect(checkFeePayer({ ...r, before: { ...r.before, accounts: [] } }, PAYER)).toEqual({ kind: "unknown" });
+    expect(checkFeePayer({ ...r, after: { ...r.after, accounts: [] } }, PAYER)).toEqual({ kind: "unknown" });
   });
 });
 
@@ -151,9 +151,16 @@ describe("otherRequiredSigners", () => {
 });
 
 describe("sendBlock", () => {
+  it("checks the rewritten transaction, not the pasted one", () => {
+    const r = optimizeResult(); // the pasted transaction is paid by the wallet
+    const pastedSaysOk = { ...r, after: { ...r.after, accounts: [acct(THIRD, true)] } };
+    expect(sendBlock(pastedSaysOk, PAYER)).toMatchObject({ kind: "fee-payer" });
+  });
+
   const withAccounts = (accounts: ReturnType<typeof acct>[]) => {
     const r = optimizeResult();
-    return { ...r, before: { ...r.before, accounts } };
+    // The check reads the rewritten transaction's accounts (the "after" simulation).
+    return { ...r, after: { ...r.after, accounts } };
   };
 
   it("allows the sole signing fee payer", () => {

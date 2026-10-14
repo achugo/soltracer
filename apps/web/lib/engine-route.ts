@@ -8,6 +8,8 @@ export interface EngineRouteInput {
   body: unknown;
   env: Pick<WebEnv, "ENGINE_URL" | "ENGINE_TOKEN">;
   fetchImpl?: typeof fetch;
+  /** The browser request's signal: closing the tab cancels the engine call and its RPC work. */
+  signal?: AbortSignal;
 }
 
 export interface EngineRouteSpec<Req extends z.ZodType, Res extends z.ZodType> {
@@ -41,7 +43,7 @@ export async function proxyToEngine<Req extends z.ZodType, Res extends z.ZodType
   return callEngine(
     input.env,
     spec.path,
-    { method: "POST", body: parsed.data, wallet: input.session.publicKey, timeoutMs: spec.timeoutMs },
+    { method: "POST", body: parsed.data, wallet: input.session.publicKey, timeoutMs: spec.timeoutMs, signal: input.signal },
     spec.response,
     input.fetchImpl,
   );

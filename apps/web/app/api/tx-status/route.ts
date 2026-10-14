@@ -9,6 +9,6 @@ export async function POST(req: Request) {
   const session = await currentSession();
   // Only read the body once the caller is known to be signed in.
   const body: unknown = session ? await req.json().catch(() => undefined) : undefined;
-  const res = await handleTxStatus({ session, body, env: webEnv() });
+  const res = await handleTxStatus({ session, body, env: webEnv(), signal: req.signal });
   return NextResponse.json(res.body, { status: res.status, headers: { "cache-control": "no-store" } });
 }

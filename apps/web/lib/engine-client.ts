@@ -19,6 +19,8 @@ export async function callEngine<S extends z.ZodType>(
     wallet?: string;
     /** Defaults to 10 s; slow multi-call routes (optimize) pass more. */
     timeoutMs?: number;
+    /** Aborts the engine call early, e.g. when the browser request closes. */
+    signal?: AbortSignal;
   },
   schema: S,
   fetchImpl: typeof fetch = fetch,
@@ -33,7 +35,9 @@ export async function callEngine<S extends z.ZodType>(
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: AbortSignal.timeout(init.timeoutMs ?? ENGINE_TIMEOUT_MS),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(init.timeoutMs ?? ENGINE_TIMEOUT_MS)])
+        : AbortSignal.timeout(init.timeoutMs ?? ENGINE_TIMEOUT_MS),
       cache: "no-store",
     });
   } catch {
