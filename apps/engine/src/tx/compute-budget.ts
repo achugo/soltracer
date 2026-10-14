@@ -14,10 +14,15 @@ import {
 } from "@solana/kit";
 import type { DecodedTransaction } from "./decode.ts";
 
+/** ceil(limit x price / 1e6): the runtime's priority fee in lamports. */
+export function priorityFeeLamports(limit: number, priceMicroLamports: bigint): bigint {
+  return (BigInt(limit) * priceMicroLamports + 999_999n) / 1_000_000n;
+}
+
 export const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 
 /** Lookup-table contents implied by the resolved accounts (enough for decompiling). */
-function tablesFrom(accounts: readonly AccountRef[]): Record<Address, Address[]> {
+export function tablesFrom(accounts: readonly AccountRef[]): Record<Address, Address[]> {
   const tables: Record<Address, Address[]> = {};
   for (const a of accounts) {
     if (a.source.kind !== "lookup") continue;
@@ -51,8 +56,7 @@ export function readComputeBudget(tx: DecodedTransaction, accounts: readonly Acc
   }
 
   const price = getTransactionMessageComputeUnitPrice(message) ?? 0n;
-  // fee = ceil(limit x price / 1e6), as the runtime computes it.
-  const priority = (BigInt(limit) * price + 999_999n) / 1_000_000n;
+  const priority = priorityFeeLamports(limit, price);
   return {
     limit,
     limitSource: explicit === undefined ? "default" : "explicit",
