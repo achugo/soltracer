@@ -14,10 +14,11 @@ import type { SandboxCaches } from "../cache/types.ts";
 import type { RpcSession } from "../rpc/client.ts";
 import { jsonSafe } from "../decode/program-error.ts";
 import { simulateWithRpc, type SimulatorLog } from "../sim/rpc-simulator.ts";
-import { priorityFeeLamports } from "../tx/compute-budget.ts";
+import { priorityFeeLamports, tablesFrom } from "../tx/compute-budget.ts";
 import { decodeTransactionInput } from "../tx/decode.ts";
 import { detectContention, feePresets } from "./fees.ts";
-import { addedBudgetCost, nonBudgetInstructions, rewriteTransaction } from "./rewrite.ts";
+import { resolveAccounts } from "../tx/lookup-tables.ts";
+import { addedBudgetCost, messageInvariants, nonBudgetInstructions, rewriteTransaction } from "./rewrite.ts";
 
 export type OptimizeOutcome = { ok: true; result: OptimizeResult } | { ok: false; status: number; error: ErrorResponse };
 
@@ -102,6 +103,8 @@ export async function optimizeWithRpc(
   const lifetime = { blockhash: latest.value.blockhash, lastValidBlockHeight: latest.value.lastValidBlockHeight };
 
   const original = nonBudgetInstructions(tx, accounts);
+  const invariants = JSON.stringify(messageInvariants(tx, accounts));
+  const tableMap = new Map(Object.entries(tablesFrom(accounts)) as [Address, Address[]][]);
   const baseFee = BigInt(before.fee.baseLamports);
   const presets = {} as Record<FeePreset, PresetResult>;
   let durableNonce = false;
@@ -113,8 +116,14 @@ export async function optimizeWithRpc(
 
     const check = decodeTransactionInput(rewritten.wireBase64);
     if (!check.ok) throw new Error(`Rewritten transaction does not decode: ${check.error.message}`);
-    if (JSON.stringify(nonBudgetInstructions(check.tx, accounts)) !== JSON.stringify(original)) {
+    // The rewrite may only change the compute limit, the price and the blockhash: never the fee
+    // payer, who signs, what is writable, or any other instruction (including other budget ones).
+    const rewrittenAccounts = resolveAccounts(check.tx, tableMap);
+    if (JSON.stringify(nonBudgetInstructions(check.tx, rewrittenAccounts)) !== JSON.stringify(original)) {
       throw new Error("Rewrite changed a non-budget instruction");
+    }
+    if (JSON.stringify(messageInvariants(check.tx, rewrittenAccounts)) !== invariants) {
+      throw new Error("Rewrite changed the fee payer, signers, writable accounts or a kept instruction");
     }
     const priority = priorityFeeLamports(limit, price);
     presets[preset] = {

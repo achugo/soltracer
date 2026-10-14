@@ -118,3 +118,38 @@ export function addedBudgetCost(tx: DecodedTransaction, accounts: readonly Accou
   );
   return (2 - present.size) * BUDGET_INSTRUCTION_CU;
 }
+
+/** The two ComputeBudget instructions the optimizer manages: SetComputeUnitLimit (2) and SetComputeUnitPrice (3). */
+function isManagedBudgetInstruction(programAddress: Address, data: Uint8Array | undefined): boolean {
+  return programAddress === COMPUTE_BUDGET_PROGRAM && (data?.[0] === 2 || data?.[0] === 3);
+}
+
+export interface MessageInvariants {
+  feePayer: string;
+  /** Sorted addresses that must sign. */
+  signers: string[];
+  /** Sorted addresses the message requests write access to. */
+  writable: string[];
+  /** Every instruction except SetComputeUnitLimit/SetComputeUnitPrice, in order. */
+  instructions: NormalizedInstruction[];
+}
+
+/**
+ * What a rewrite must never change. The only account a rewrite may add is the ComputeBudget
+ * program itself, read-only and not a signer, so it appears in none of these lists.
+ */
+export function messageInvariants(tx: DecodedTransaction, accounts: readonly AccountRef[]): MessageInvariants {
+  const message = decompileTransactionMessage(tx.compiled, { addressesByLookupTableAddress: tablesFrom(accounts) });
+  return {
+    feePayer: accounts[0]?.address ?? "",
+    signers: accounts.filter((a) => a.signer).map((a) => a.address).sort(),
+    writable: [...new Set(accounts.filter((a) => a.writable).map((a) => a.address))].sort(),
+    instructions: message.instructions
+      .filter((ix) => !isManagedBudgetInstruction(ix.programAddress, ix.data as Uint8Array | undefined))
+      .map((ix) => ({
+        programAddress: ix.programAddress,
+        accounts: (ix.accounts ?? []).map((a) => ({ address: a.address, role: a.role })),
+        data: Buffer.from(ix.data ?? new Uint8Array()).toString("hex"),
+      })),
+  };
+}

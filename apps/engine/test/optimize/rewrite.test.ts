@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
-import { addedBudgetCost, nonBudgetInstructions, rewriteTransaction } from "../../src/optimize/rewrite.ts";
+import { addedBudgetCost, messageInvariants, nonBudgetInstructions, rewriteTransaction } from "../../src/optimize/rewrite.ts";
 import { readComputeBudget } from "../../src/tx/compute-budget.ts";
 import { decodeTransactionInput, type DecodedTransaction } from "../../src/tx/decode.ts";
 import { resolveAccounts } from "../../src/tx/lookup-tables.ts";
@@ -142,6 +142,34 @@ describe("rewriteTransaction", () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.code).toBe("TX_TOO_LARGE");
+  });
+});
+
+describe("messageInvariants", () => {
+  it.each(["sol-transfer", "jupiter-swap-alt", "jupiter-slippage-6001", "v1-transaction"] as const)(
+    "are unchanged by a rewrite of %s (fee payer, signers, writable set, untouched instructions)",
+    (name) => {
+      const { before, after } = roundTrip(name, 100_000, 7_000n);
+      expect(messageInvariants(after.tx, after.accounts)).toEqual(messageInvariants(before.tx, before.accounts));
+    },
+  );
+
+  it("keeps other ComputeBudget instructions, like the loaded-accounts data limit, in the comparison", () => {
+    const { tx, accounts } = fixture("jupiter-slippage-6001");
+    const kept = messageInvariants(tx, accounts).instructions.filter(
+      (ix) => ix.programAddress === ("ComputeBudget111111111111111111111111111111" as Address),
+    );
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.data.startsWith("04")).toBe(true); // SetLoadedAccountsDataSizeLimit
+  });
+
+  it("would notice a changed fee payer or an escalated account", () => {
+    const { tx, accounts } = fixture("jupiter-swap-alt");
+    const base = messageInvariants(tx, accounts);
+    const escalated = accounts.map((a, i) => (i === accounts.length - 1 ? { ...a, writable: true } : a));
+    expect(messageInvariants(tx, escalated).writable).not.toEqual(base.writable);
+    const otherPayer = [accounts[1], accounts[0], ...accounts.slice(2)].filter((a) => a !== undefined);
+    expect(messageInvariants(tx, otherPayer).feePayer).not.toBe(base.feePayer);
   });
 });
 
