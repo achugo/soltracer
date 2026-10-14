@@ -8,7 +8,8 @@
     "./auth": "./src/auth.ts",
     "./errors": "./src/errors.ts",
     "./simulation": "./src/simulation.ts",
-    "./solana": "./src/solana.ts"
+    "./solana": "./src/solana.ts",
+    "./optimize": "./src/optimize.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

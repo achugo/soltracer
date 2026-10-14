@@ -17,7 +17,8 @@ export const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 export const DEFAULT_CU_PER_INSTRUCTION = 200_000;
 
 /** u64 values travel as decimal strings: they can exceed Number.MAX_SAFE_INTEGER. */
-const u64 = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
+export const u64Schema = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
+const u64 = u64Schema;
 // The difference of two u64 values still fits in 20 digits.
 const signedAmount = z.string().regex(/^-?\d{1,20}$/, "Must be an integer string");
 

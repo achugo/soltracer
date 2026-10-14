@@ -21,5 +21,6 @@ const base58Bytes = (bytes: number, label: string) =>
 
 export const pubkeySchema = base58Bytes(32, "public key");
 export const signatureSchema = base58Bytes(64, "signature");
+export const blockhashSchema = base58Bytes(32, "blockhash");
 
 export type Pubkey = z.infer<typeof pubkeySchema>;

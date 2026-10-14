@@ -16,6 +16,7 @@ export const errorCodeSchema = z.enum([
   "TX_TOO_LARGE",
   "RPC_ERROR",
   "RPC_RATE_LIMITED",
+  "OPTIMIZE_NOT_FIXABLE",
   "INTERNAL",
 ]);
 
