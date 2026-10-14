@@ -1,6 +1,6 @@
 /**
  * A local JSON-RPC server that answers from recorded simulator and optimizer sessions
- * (test/fixtures/sandbox/*.sim.json and *.opt.json).
+ * (test/fixtures/sandbox/*.cmp.json, *.opt.json and *.sim.json; blobs from test/fixtures/blobs).
  * Used by e2e tests so the engine never calls Helius. Answers are repeatable: the same call always
  * gets its recorded response. Listens on 127.0.0.1 only.
  *
@@ -11,9 +11,12 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import type { RpcCallRecord } from "../src/rpc/client.ts";
 import { isJsonRpcPayload } from "@solana/kit";
-import { callKey, parseRecordedJson } from "../src/rpc/replay.ts";
+import type { Address } from "@solana/kit";
+import { anchorIdlAddress } from "../src/decode/idl-address.ts";
+import { callKey, parseRecordedJson, resolveBlobs } from "../src/rpc/replay.ts";
 
 const DIR = fileURLToPath(new URL("../test/fixtures/sandbox/", import.meta.url));
+const BLOB_DIR = fileURLToPath(new URL("../test/fixtures/blobs", import.meta.url));
 const port = Number(process.argv[2] ?? 4199);
 
 const { rawJSON } = JSON as unknown as { rawJSON(text: string): unknown };
@@ -74,21 +77,57 @@ function composeAccountRead(method: string, params: unknown): unknown {
 }
 // Deterministic precedence, whatever the filesystem's order: optimizer recordings first, then
 // simulator recordings, which win when both recorded the same call (the Sandbox specs assert exact deltas).
+// Comparison recordings (rpc + local sessions, program binaries as blobs) load first, lowest precedence.
 const files = readdirSync(DIR).sort();
-const ordered = [...files.filter((f) => f.endsWith(".opt.json")), ...files.filter((f) => f.endsWith(".sim.json"))];
-for (const file of ordered) {
-  const { rpc } = parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: RpcCallRecord[] };
-  for (const r of rpc) {
+const sessions: [string, RpcCallRecord[]][] = [];
+for (const file of files.filter((f) => f.endsWith(".cmp.json"))) {
+  const cmp = resolveBlobs(parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")), BLOB_DIR) as {
+    rpc: RpcCallRecord[];
+    local: RpcCallRecord[];
+  };
+  sessions.push([`${file}#rpc`, cmp.rpc], [`${file}#local`, cmp.local]);
+}
+for (const file of [...files.filter((f) => f.endsWith(".opt.json")), ...files.filter((f) => f.endsWith(".sim.json"))]) {
+  sessions.push([file, (parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: RpcCallRecord[] }).rpc]);
+}
+for (const [source, records] of sessions) {
+  for (const r of records) {
     const key = callKey(r.method, r.params);
     const byFile = answers.get(key) ?? new Map<string, unknown>();
-    byFile.delete(file); // re-insert so later files keep precedence
-    byFile.set(file, r.response);
+    byFile.delete(source); // re-insert so later sources keep precedence
+    byFile.set(source, r.response);
     answers.set(key, byFile);
     indexAccounts(r);
   }
 }
 
+/**
+ * Anchor IDL accounts of every executable program seen in the recordings. A run whose overrides make a
+ * program fail looks up its IDL, which no recording captured; answer those (and only those) with
+ * "no account", so the error shows raw instead of the fake failing the request.
+ */
+const idlAddresses = new Set<string>();
+for (const [address, entry] of accountsByAddress) {
+  const value = entry.value as { executable?: boolean } | null;
+  if (value?.executable) idlAddresses.add(await anchorIdlAddress(address as Address));
+}
+
+/** How many IDL lookups were answered "no account"; e2e asserts successful runs cause none. */
+let idlMisses = 0;
+
+function missingIdl(method: string, params: unknown): unknown {
+  if (method !== "getAccountInfo" || !Array.isArray(params) || typeof params[0] !== "string") return undefined;
+  if (!idlAddresses.has(params[0])) return undefined;
+  idlMisses += 1;
+  console.warn(`fake-rpc: no recorded IDL for ${params[0]}; answering "no account"`);
+  return { jsonrpc: "2.0", result: { context: { slot: 0n }, value: null } };
+}
+
 const server = createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/__stats") {
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ idlMisses }));
+    return;
+  }
   let body = "";
   req.on("data", (chunk: Buffer) => (body += chunk.toString()));
   req.on("end", () => {
@@ -103,7 +142,10 @@ const server = createServer((req, res) => {
       return;
     }
     const payload = parsed as typeof parsed & { id?: unknown };
-    const recorded = answer(callKey(payload.method, payload.params)) ?? composeAccountRead(payload.method, payload.params);
+    const recorded =
+      answer(callKey(payload.method, payload.params)) ??
+      composeAccountRead(payload.method, payload.params) ??
+      missingIdl(payload.method, payload.params);
     const reply =
       typeof recorded === "object" && recorded !== null
         ? { ...recorded, id: payload.id }
