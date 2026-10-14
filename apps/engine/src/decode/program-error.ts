@@ -38,7 +38,7 @@ export function locateFailure(err: unknown, logs: readonly string[], instruction
 }
 
 /** Deep copy with bigints as numbers (or strings beyond 2^53), so the result serializes. */
-function jsonSafe(value: unknown): unknown {
+export function jsonSafe(value: unknown): unknown {
   if (typeof value === "bigint") return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
   if (Array.isArray(value)) return value.map(jsonSafe);
   if (typeof value === "object" && value !== null) {

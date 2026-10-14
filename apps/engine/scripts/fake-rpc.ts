@@ -20,7 +20,11 @@ const { rawJSON } = JSON as unknown as { rawJSON(text: string): unknown };
 const stringify = (v: unknown) => JSON.stringify(v, (_k, x: unknown) => (typeof x === "bigint" ? rawJSON(x.toString()) : x));
 
 const answers = new Map<string, unknown>();
-for (const file of readdirSync(DIR).filter((f) => f.endsWith(".sim.json") || f.endsWith(".opt.json"))) {
+// Deterministic precedence, whatever the filesystem's order: optimizer recordings first, then
+// simulator recordings, which win when both recorded the same call (the Sandbox specs assert exact deltas).
+const files = readdirSync(DIR).sort();
+const ordered = [...files.filter((f) => f.endsWith(".opt.json")), ...files.filter((f) => f.endsWith(".sim.json"))];
+for (const file of ordered) {
   const { rpc } = parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: RpcCallRecord[] };
   for (const r of rpc) answers.set(callKey(r.method, r.params), r.response);
 }

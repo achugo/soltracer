@@ -1,7 +1,8 @@
 import type { OptimizeResult } from "@soltracer/shared/optimize";
 import type { Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
-import { limitFor } from "../../src/optimize/optimizer.ts";
+import type { SimulationResult } from "@soltracer/shared/simulation";
+import { isOutOfCompute, limitFor } from "../../src/optimize/optimizer.ts";
 import { addedBudgetCost, nonBudgetInstructions } from "../../src/optimize/rewrite.ts";
 import { priorityFeeLamports, readComputeBudget, tablesFrom } from "../../src/tx/compute-budget.ts";
 import { decodeTransactionInput, type DecodedTransaction } from "../../src/tx/decode.ts";
@@ -75,14 +76,38 @@ describe("optimizeWithRpc (replayed mainnet responses)", () => {
     expect(result.contention).toMatchObject({ paidSlotShare: expect.any(Number) });
   });
 
-  it("refuses a swap that fails for a reason fees can't fix, with the decoded error", async () => {
+  it("probes at 1.4M when the original runs out of compute, then refuses the real failure (slippage)", async () => {
+    // Recorded today: the original exhausts its 68,548 CU limit; at 1.4M it reaches Jupiter's slippage check.
     const { outcome, unused } = await replayOptimization("jupiter-slippage-6001");
-    expect(unused).toBe(0);
+    expect(unused).toBe(0); // includes the probe simulation
     expect(outcome).toMatchObject({
       ok: false,
       status: 422,
-      error: { code: "OPTIMIZE_NOT_FIXABLE", details: { error: { code: 6001, name: "SlippageToleranceExceeded" } } },
+      error: {
+        code: "OPTIMIZE_NOT_FIXABLE",
+        message: "This transaction still fails with the maximum compute limit.",
+        details: { error: { code: 6001, name: "SlippageToleranceExceeded" } },
+      },
     });
+  });
+
+  it.each(["jupiter-swap-fresh", "sol-transfer", "v1-transaction"])("costs at most 12 credits for %s", async (name) => {
+    expect((await optimize(name)).result.credits).toBeLessThanOrEqual(12);
+  });
+});
+
+describe("isOutOfCompute", () => {
+  const failed = (name: string, logs: string[] = []) =>
+    ({ status: { success: false, error: { name } }, logs }) as unknown as SimulationResult;
+
+  it("recognises the ComputationalBudgetExceeded error and the meter log line", () => {
+    expect(isOutOfCompute(failed("ComputationalBudgetExceeded"))).toBe(true);
+    expect(isOutOfCompute(failed("ProgramFailedToComplete", ["Program X consumed 200000 of 200000 compute units", "Program X failed: exceeded CUs meter at BPF instruction"]))).toBe(true);
+  });
+
+  it("does not treat other failures or successes as compute problems", () => {
+    expect(isOutOfCompute(failed("SlippageToleranceExceeded"))).toBe(false);
+    expect(isOutOfCompute({ status: { success: true }, logs: [] } as unknown as SimulationResult)).toBe(false);
   });
 });
 

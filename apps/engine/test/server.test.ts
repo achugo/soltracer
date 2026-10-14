@@ -406,6 +406,8 @@ describe("POST /optimize and /tx-status", () => {
     const sig = bs58.encode(new Uint8Array(64).fill(3));
     const found = await call({ txStatus: async () => ({ confirmationStatus: "confirmed", err: null, slot: 9 }) }, "/tx-status", { signature: sig });
     expect(found).toEqual({ status: 200, body: { ok: true, status: { confirmationStatus: "confirmed", err: null, slot: 9 } } });
+    const failed = await call({ txStatus: async () => ({ confirmationStatus: "confirmed", err: { InstructionError: [0, { Custom: 1 }] }, slot: 9 }) }, "/tx-status", { signature: sig });
+    expect(failed.body).toMatchObject({ status: { err: { InstructionError: [0, { Custom: 1 }] } } });
     const missing = await call({ txStatus: async () => null }, "/tx-status", { signature: sig });
     expect(missing.body).toEqual({ ok: true, status: null });
     expect((await call({ txStatus: async () => null }, "/tx-status", { signature: "nope" })).status).toBe(400);

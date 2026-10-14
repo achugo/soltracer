@@ -1,6 +1,8 @@
 import { makeError, type ErrorResponse } from "@soltracer/shared/errors";
 import {
   optimizeResultSchema,
+  txStatusResultSchema,
+  type TxStatusResult,
   type FeePreset,
   type OptimizeResult,
   type OptimizeWarning,
@@ -10,6 +12,7 @@ import { MAX_COMPUTE_UNIT_LIMIT, type SimulationResult } from "@soltracer/shared
 import { signature as toSignature, type Address } from "@solana/kit";
 import type { SandboxCaches } from "../cache/types.ts";
 import type { RpcSession } from "../rpc/client.ts";
+import { jsonSafe } from "../decode/program-error.ts";
 import { simulateWithRpc, type SimulatorLog } from "../sim/rpc-simulator.ts";
 import { priorityFeeLamports } from "../tx/compute-budget.ts";
 import { decodeTransactionInput } from "../tx/decode.ts";
@@ -22,7 +25,8 @@ export type OptimizeOutcome = { ok: true; result: OptimizeResult } | { ok: false
 export const CU_MARGIN_NUMERATOR = 115n;
 const PRESETS: FeePreset[] = ["p50", "p75", "p90"];
 
-function isOutOfCompute(result: SimulationResult): boolean {
+/** True when a simulation failed only because it ran out of compute units. */
+export function isOutOfCompute(result: SimulationResult): boolean {
   if (result.status.success) return false;
   return (
     result.status.error.name === "ComputationalBudgetExceeded" ||
@@ -61,8 +65,8 @@ export async function optimizeWithRpc(
   const tx = decoded.tx;
   const accounts = before.accounts;
 
-  // Measure what the transaction really needs.
-  let used = before.unitsConsumed;
+  // Measure what the transaction really needs, including budget instructions the rewrite adds.
+  let used = before.unitsConsumed + addedBudgetCost(tx, accounts);
   if (!before.status.success) {
     if (!isOutOfCompute(before)) {
       return notFixable(
@@ -77,16 +81,16 @@ export async function optimizeWithRpc(
       priceMicroLamports: BigInt(before.computeBudget.priceMicroLamports ?? "0"),
       lifetime: { blockhash: tx.compiled.lifetimeToken, lastValidBlockHeight: 0n },
     });
-    if (!probe.ok) return { ok: false, status: 400, error: probe.error };
+    if (!probe.ok) return notFixable(probe.error.message, probe.error.details);
     const measured = await simulateWithRpc(probe.wireBase64, session, caches, log);
     if (!measured.ok) return measured;
     if (!measured.result.status.success) {
       return notFixable("This transaction still fails with the maximum compute limit.", { error: measured.result.status.error });
     }
+    // The probe already contains the inserted budget instructions, so their cost is included.
     used = measured.result.unitsConsumed;
   }
-  // Budget instructions the rewrite adds also consume compute; count them before adding headroom.
-  const limit = limitFor(used + addedBudgetCost(tx, accounts));
+  const limit = limitFor(used);
 
   // Recent fees for the accounts it write-locks (the RPC accepts up to 128).
   const locked = [...new Set(accounts.filter((a) => a.writable).map((a) => a.address as Address))].slice(0, 128);
@@ -104,7 +108,7 @@ export async function optimizeWithRpc(
   for (const preset of PRESETS) {
     const price = presetPrices ? presetPrices[preset] : 0n;
     const rewritten = rewriteTransaction({ tx, accounts, limit, priceMicroLamports: price, lifetime });
-    if (!rewritten.ok) return { ok: false, status: 400, error: rewritten.error };
+    if (!rewritten.ok) return notFixable(rewritten.error.message, rewritten.error.details);
     durableNonce = rewritten.durableNonce;
 
     const check = decodeTransactionInput(rewritten.wireBase64);
@@ -167,13 +171,15 @@ export async function optimizeWithRpc(
   return { ok: true, result: optimizeResultSchema.parse(result) };
 }
 
-/** Latest known status of a signature (no history search: 1 credit). */
-export async function signatureStatus(session: RpcSession, signature: string) {
+/** Latest known status of a signature (no history search: 1 credit), validated with the shared schema. */
+export async function signatureStatus(session: RpcSession, signature: string): Promise<TxStatusResult["status"]> {
   const { value } = await session.rpc
     .getSignatureStatuses([toSignature(signature)], { searchTransactionHistory: false })
     .send();
   const status = value[0];
-  return status
-    ? { confirmationStatus: status.confirmationStatus ?? null, err: status.err ?? null, slot: Number(status.slot) }
-    : null;
+  return txStatusResultSchema.shape.status.parse(
+    status
+      ? { confirmationStatus: status.confirmationStatus ?? null, err: jsonSafe(status.err ?? null), slot: Number(status.slot) }
+      : null,
+  );
 }
