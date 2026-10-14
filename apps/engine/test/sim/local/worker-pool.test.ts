@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createWorkerPool, LOCAL_RUNNER_WORKER } from "../../../src/sim/local/worker-pool.ts";
 import { LocalLoadError } from "../../../src/sim/local/loader.ts";
 import { runLocal } from "../../../src/sim/local/runner.ts";
@@ -74,6 +74,45 @@ describe("pool lifecycle", () => {
       expect(Date.now() - started).toBeLessThan(50);
     } finally {
       await pool.close();
+    }
+  });
+});
+
+describe("hostile runs can't take the runner down (audit L1)", () => {
+  it("repeated timeouts replace the worker but never break the pool", async () => {
+    // 250 ms also covers the replacement worker's startup before the final job.
+    const pool = createWorkerPool<string, unknown>({ size: 1, timeoutMs: 250, workerUrl: worker("selective") });
+    try {
+      for (let i = 0; i < 6; i++) await expect(pool.run("spin")).rejects.toThrow(/timed out/);
+      expect(await pool.run("ok")).toEqual({ echoed: "ok" });
+    } finally {
+      await pool.close();
+    }
+  });
+
+  it("a broken pool tries again after its cooldown", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const pool = createWorkerPool<string, unknown>({ size: 1, timeoutMs: 1000, workerUrl: worker("crash"), cooldownMs: 60_000 });
+    try {
+      for (let i = 0; i < 5; i++) await expect(pool.run(String(i))).rejects.toThrow(LocalLoadError);
+      await expect(pool.run("again")).rejects.toThrow(/keeps failing/);
+      vi.setSystemTime(Date.now() + 60_001);
+      // A fresh worker is spawned and gets the job (this one crashes too, so the error is a crash, not "keeps failing").
+      await expect(pool.run("after cooldown")).rejects.toThrow(/crashed|exited/);
+    } finally {
+      vi.useRealTimers();
+      await pool.close();
+    }
+  });
+
+  it("refuses work past the queue cap instead of queueing without bound", async () => {
+    const pool = createWorkerPool<string, unknown>({ size: 1, timeoutMs: 10_000, workerUrl: worker("busy"), maxQueue: 2 });
+    const pending = [pool.run("a"), pool.run("b"), pool.run("c")].map((p) => expect(p).rejects.toThrow(/shut down/));
+    try {
+      await expect(pool.run("d")).rejects.toThrow(/busy/);
+    } finally {
+      await pool.close();
+      await Promise.all(pending);
     }
   });
 });

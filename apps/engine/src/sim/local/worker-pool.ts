@@ -18,13 +18,22 @@ interface Job<I, O> {
 }
 
 interface Slot<I, O> {
-  worker: Worker;
+  /** Null while the pool is broken: the slot's worker was not replaced. */
+  worker: Worker | null;
   job: Job<I, O> | null;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-/** After this many worker failures in a row (e.g. the worker can't even load) the pool stops respawning. */
+/**
+ * After this many crashes in a row (e.g. the worker can't even load) the pool stops respawning for
+ * a cooldown. Timeouts and heap exhaustion don't count: those are the transaction's doing, not the runner's.
+ */
 const MAX_CONSECUTIVE_FAILURES = 5;
+const DEFAULT_COOLDOWN_MS = 60_000;
+/** V8 heap per worker; program binaries and account data are ArrayBuffers outside it. */
+const DEFAULT_MAX_HEAP_MB = 512;
+/** Most jobs waiting for a worker; the sandbox's own concurrency limit keeps this near zero. */
+const DEFAULT_MAX_QUEUE = 16;
 
 /**
  * A fixed-size pool of workers, one job each at a time. A job that runs past `timeoutMs` has its
@@ -32,13 +41,27 @@ const MAX_CONSECUTIVE_FAILURES = 5;
  * terminate() interrupts JavaScript only: a worker inside a long native LiteSVM call keeps its CPU
  * until that call returns (bounded by the compute limit), while its replacement serves new jobs.
  */
-export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: number; timeoutMs: number; workerUrl: URL }): WorkerPool<I, O> {
+export function createWorkerPool<I, O>({
+  size,
+  timeoutMs,
+  workerUrl,
+  cooldownMs = DEFAULT_COOLDOWN_MS,
+  maxHeapMb = DEFAULT_MAX_HEAP_MB,
+  maxQueue = DEFAULT_MAX_QUEUE,
+}: {
+  size: number;
+  timeoutMs: number;
+  workerUrl: URL;
+  cooldownMs?: number;
+  maxHeapMb?: number;
+  maxQueue?: number;
+}): WorkerPool<I, O> {
   const queue: Job<I, O>[] = [];
   const slots: Slot<I, O>[] = [];
   let nextId = 0;
   let closed = false;
   let consecutiveFailures = 0;
-  let broken: string | null = null;
+  let broken: { reason: string; until: number } | null = null;
 
   function finish(slot: Slot<I, O>): Job<I, O> | null {
     const job = slot.job;
@@ -48,22 +71,30 @@ export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: n
     return job;
   }
 
-  function replace(slot: Slot<I, O>, reason: string): void {
+  function replace(slot: Slot<I, O>, reason: string, crashed: boolean): void {
     finish(slot)?.reject(new LocalLoadError(reason));
-    void slot.worker.terminate();
+    void slot.worker?.terminate();
+    slot.worker = null;
     if (closed) return;
-    consecutiveFailures += 1;
-    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      broken = `The local runner keeps failing (${reason})`;
-      for (const job of queue.splice(0)) job.reject(new LocalLoadError(broken));
+    if (crashed) consecutiveFailures += 1;
+    if (crashed && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      broken = { reason: `The local runner keeps failing (${reason})`, until: Date.now() + cooldownMs };
+      for (const job of queue.splice(0)) job.reject(new LocalLoadError(broken.reason));
       return;
     }
-    slot.worker = spawn(slot);
+    if (!broken) slot.worker = spawn(slot);
     pump();
   }
 
+  /** After the cooldown, try again: respawn the slots and give the workers another five chances. */
+  function recover(): void {
+    broken = null;
+    consecutiveFailures = 0;
+    for (const slot of slots) if (!slot.worker) slot.worker = spawn(slot);
+  }
+
   function spawn(slot: Slot<I, O>): Worker {
-    const worker = new Worker(workerUrl);
+    const worker = new Worker(workerUrl, { resourceLimits: { maxOldGenerationSizeMb: maxHeapMb } });
     worker.on("message", (msg: { id: number; ok: boolean; output?: O; error?: string }) => {
       if (slot.worker !== worker || slot.job?.id !== msg.id) return;
       const job = finish(slot);
@@ -73,22 +104,25 @@ export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: n
       pump();
     });
     worker.on("error", (err) => {
-      if (slot.worker === worker) replace(slot, `The local runner crashed: ${err.message}`);
+      // Running out of heap is the transaction's doing (like a timeout), not a broken runner.
+      const outOfMemory = (err as { code?: unknown }).code === "ERR_WORKER_OUT_OF_MEMORY";
+      if (slot.worker === worker) replace(slot, `The local runner crashed: ${err.message}`, !outOfMemory);
     });
     worker.on("exit", (code) => {
-      if (slot.worker === worker && !closed) replace(slot, `The local runner exited (code ${code})`);
+      if (slot.worker === worker && !closed) replace(slot, `The local runner exited (code ${code})`, true);
     });
     return worker;
   }
 
   function pump(): void {
     for (const slot of slots) {
-      if (slot.job || queue.length === 0) continue;
+      const worker = slot.worker;
+      if (!worker || slot.job || queue.length === 0) continue;
       const job = queue.shift() as Job<I, O>; // length checked above
       slot.job = job;
-      slot.timer = setTimeout(() => replace(slot, `The local run timed out after ${timeoutMs} ms`), timeoutMs);
+      slot.timer = setTimeout(() => replace(slot, `The local run timed out after ${timeoutMs} ms`, false), timeoutMs);
       try {
-        slot.worker.postMessage({ id: job.id, input: job.input });
+        worker.postMessage({ id: job.id, input: job.input });
       } catch (err) {
         finish(slot)?.reject(new LocalLoadError(`Could not hand the run to a worker: ${err instanceof Error ? err.message : String(err)}`));
       }
@@ -96,7 +130,7 @@ export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: n
   }
 
   for (let i = 0; i < size; i++) {
-    const slot: Slot<I, O> = { worker: undefined as unknown as Worker, job: null, timer: null };
+    const slot: Slot<I, O> = { worker: null, job: null, timer: null };
     slot.worker = spawn(slot);
     slots.push(slot);
   }
@@ -104,7 +138,9 @@ export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: n
   return {
     run(input) {
       if (closed) return Promise.reject(new LocalLoadError("The local runner is shut down"));
-      if (broken) return Promise.reject(new LocalLoadError(broken));
+      if (broken && Date.now() < broken.until) return Promise.reject(new LocalLoadError(broken.reason));
+      if (broken) recover();
+      if (queue.length >= maxQueue) return Promise.reject(new LocalLoadError("The local runner is busy"));
       return new Promise<O>((resolve, reject) => {
         queue.push({ id: nextId++, input, resolve, reject });
         pump();
@@ -115,7 +151,7 @@ export function createWorkerPool<I, O>({ size, timeoutMs, workerUrl }: { size: n
       for (const job of queue.splice(0)) job.reject(new LocalLoadError("The local runner is shut down"));
       await Promise.all(slots.map(async (slot) => {
         finish(slot)?.reject(new LocalLoadError("The local runner is shut down"));
-        await slot.worker.terminate();
+        await slot.worker?.terminate();
       }));
     },
   };
