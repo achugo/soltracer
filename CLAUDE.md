@@ -7,7 +7,7 @@ Private Solana transaction debugger for one user. It simulates transactions in a
 - `docs/build-prompt.md`: stack, architecture, global rules, Phases 0–6 with acceptance criteria.
 - `docs/live-trace-view.md`: the live trace view, Steps 1–10 with exact commits. It replaces the trace viewer in Phase 4.
 - Before starting a phase or step, read its section in full. If these docs and this file disagree, the docs win; tell me about the conflict.
-- **Current work:** Phase 3 built on `feat/phase-3-local-svm` (branched from `feat/phase-2-optimizer`), awaiting review. Next: Phase 4 (update this line when a phase or step is done).
+- **Current work:** Phase 4 engine half (trace, IDL decoding, account diffs) built on `feat/phase-4-trace-engine` (branched from `feat/phase-3-local-svm`), awaiting review. The trace UI waits for `docs/live-trace-view.md`. Next: that doc's steps, or Phase 5 (update this line when a phase or step is done).
 
 ## Hard constraints
 
