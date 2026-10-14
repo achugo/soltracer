@@ -17,6 +17,7 @@ export const errorCodeSchema = z.enum([
   "RPC_ERROR",
   "RPC_RATE_LIMITED",
   "OPTIMIZE_NOT_FIXABLE",
+  "LOCAL_LOAD_FAILED",
   "INTERNAL",
 ]);
 

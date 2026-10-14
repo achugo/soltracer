@@ -9,6 +9,7 @@ import {
   verifyResponseSchema,
 } from "@soltracer/shared";
 import type { OptimizeRequest, TxStatusResult } from "@soltracer/shared/optimize";
+import type { SimulateRequest } from "@soltracer/shared/simulation";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { z } from "zod";
 import { hasEngineToken } from "./auth/engine-token.ts";
@@ -32,7 +33,8 @@ export interface ServerDeps {
   nonceStore: NonceStore;
   logger?: FastifyServerOptions["logger"];
   /** RPC sandbox; omitted in tests that don't need it. */
-  simulate?: (tx: string, log: SimulatorLog, signal: AbortSignal) => Promise<SimulateOutcome>;
+  /** Sandbox run for the session wallet (already re-checked against ALLOWLIST by the hook). */
+  simulate?: (request: SimulateRequest, wallet: string, log: SimulatorLog, signal: AbortSignal) => Promise<SimulateOutcome>;
   /** Landing optimizer; returns unsigned transactions only. */
   optimize?: (input: OptimizeRequest, log: SimulatorLog, signal: AbortSignal) => Promise<OptimizeOutcome>;
   txStatus?: (signature: string, signal: AbortSignal) => Promise<TxStatusResult["status"]>;
@@ -109,13 +111,15 @@ export function buildServer({ config, nonceStore, logger = true, simulate, optim
   });
 
   if (simulate) {
-    app.post("/simulate", async (req, reply) => {
+    // Room for data overrides (1 MiB of account data is ~1.4 MB of base64).
+    app.post("/simulate", { bodyLimit: 2 * 1024 * 1024 }, async (req, reply) => {
       const body = simulateRequestSchema.safeParse(req.body);
       if (!body.success) {
         const issues = body.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
         return reply.code(400).send(makeError("VALIDATION_ERROR", "Invalid simulation request.", issues));
       }
-      const outcome = await simulate(body.data.tx, req.log, abortWhenClientLeaves(reply.raw));
+      const wallet = String(req.headers[SESSION_WALLET_HEADER]);
+      const outcome = await simulate(body.data, wallet, req.log, abortWhenClientLeaves(reply.raw));
       if (!outcome.ok) return reply.code(outcome.status).send(outcome.error);
       return outcome.result;
     });

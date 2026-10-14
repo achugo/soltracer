@@ -3,7 +3,9 @@ import { createPgCaches } from "./cache/pg.ts";
 import { createRpcClient } from "./rpc/client.ts";
 import { createRateLimiter } from "./rpc/rate-limiter.ts";
 import { optimizeWithRpc, signatureStatus } from "./optimize/optimizer.ts";
-import { simulateWithRpc } from "./sim/rpc-simulator.ts";
+import { PgRunStore } from "./runs/run-store.ts";
+import { createProgramCache } from "./sim/local/loader.ts";
+import { runSandbox } from "./sim/sandbox.ts";
 import { loadConfig } from "./config.ts";
 import { createDb } from "./db/client.ts";
 import { buildServer, ENGINE_HOST } from "./server.ts";
@@ -23,6 +25,8 @@ const config = configOrExit();
 const { db, close } = createDb(config.DATABASE_URL);
 const nonceStore = new PgNonceStore(db);
 const caches = createPgCaches(db);
+const programCache = createProgramCache();
+const runs = new PgRunStore(db);
 
 // The engine's only Helius client: 10 requests in any 1-second window, shared by every request.
 const rpc = createRpcClient({
@@ -38,7 +42,8 @@ const app = buildServer({
   config,
   nonceStore,
   logger: { level: "info", redact: ["req.headers.authorization"] },
-  simulate: (tx, log, signal) => simulateWithRpc(tx, rpc.session({ signal }), caches, log),
+  simulate: (request, wallet, log, signal) =>
+    runSandbox(request, wallet, { session: rpc.session({ signal }), caches, programCache, runs, log }),
   optimize: (input, log, signal) => optimizeWithRpc(input, rpc.session({ signal }), caches, log),
   txStatus: (signature, signal) => signatureStatus(rpc.session({ signal }), signature),
 });
