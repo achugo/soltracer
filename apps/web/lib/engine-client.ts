@@ -12,7 +12,14 @@ export type EngineResult<T> = { status: number; body: T | ErrorResponse };
 export async function callEngine<S extends z.ZodType>(
   env: Pick<WebEnv, "ENGINE_URL" | "ENGINE_TOKEN">,
   path: string,
-  init: { method: "GET" | "POST"; body?: unknown; /** Session wallet; the engine re-checks it against ALLOWLIST. */ wallet?: string },
+  init: {
+    method: "GET" | "POST";
+    body?: unknown;
+    /** Session wallet; the engine re-checks it against ALLOWLIST. */
+    wallet?: string;
+    /** Defaults to 10 s; slow multi-call routes (optimize) pass more. */
+    timeoutMs?: number;
+  },
   schema: S,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EngineResult<z.infer<S>>> {
@@ -26,7 +33,7 @@ export async function callEngine<S extends z.ZodType>(
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
-      signal: AbortSignal.timeout(ENGINE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(init.timeoutMs ?? ENGINE_TIMEOUT_MS),
       cache: "no-store",
     });
   } catch {

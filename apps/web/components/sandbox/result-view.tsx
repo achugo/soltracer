@@ -1,5 +1,6 @@
 import type { SimulationResult } from "@soltracer/shared/simulation";
 import { ShieldAlert } from "lucide-react";
+import type { ReactNode } from "react";
 import { groupDigits } from "@/lib/format.ts";
 import { AccountsPanel } from "./accounts-panel.tsx";
 import { BalanceTable } from "./balance-table.tsx";
@@ -11,7 +12,8 @@ import { StatusCard } from "./status-card.tsx";
 
 const versionLabel = (v: SimulationResult["version"]) => (v === "legacy" ? "legacy" : `v${v}`);
 
-export function ResultView({ result }: { result: SimulationResult }) {
+/** `actions` renders under the status, compute and fee cards (the landing optimizer). */
+export function ResultView({ result, actions }: { result: SimulationResult; actions?: ReactNode }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2" aria-label="Transaction summary" role="group">
@@ -35,6 +37,7 @@ export function ResultView({ result }: { result: SimulationResult }) {
         <CuBar used={result.unitsConsumed} budget={result.computeBudget} />
         <FeeCard fee={result.fee} budget={result.computeBudget} version={result.version} />
       </div>
+      {actions}
       <BalanceTable balances={result.balances} feePayer={result.accounts[0]?.address ?? null} />
       <AccountsPanel accounts={result.accounts} />
       <LogsPanel logs={result.logs} />

@@ -1,26 +1,14 @@
 "use client";
 
-import { WalletReadyState, type WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 // Subpath imports keep the server-only env schemas out of the client bundle.
 import { buildLoginMessage, nonceResponseSchema, verifyResponseSchema } from "@soltracer/shared/auth";
 import { errorResponseSchema } from "@soltracer/shared/errors";
 import bs58 from "bs58";
-import { AlertTriangle, ExternalLink, Loader2, LogIn, Unplug } from "lucide-react";
+import { AlertTriangle, Loader2, LogIn, Unplug } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
-
-const SUPPORTED = new Map([
-  ["Phantom", "https://phantom.com/download"],
-  ["Solflare", "https://solflare.com/download"],
-]);
-
-const noopSubscribe = () => () => undefined;
-
-/** False during SSR and hydration, true after: wallets are only detectable in the browser. */
-function useIsClient(): boolean {
-  return useSyncExternalStore(noopSubscribe, () => true, () => false);
-}
+import { useState } from "react";
+import { walletButtonClass, WalletConnectButtons } from "./wallet-connect-buttons.tsx";
 
 type Status = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "error"; message: string };
 
@@ -30,15 +18,9 @@ function errorMessage(json: unknown, fallback: string): string {
 }
 
 export function LoginPanel({ next }: { next: string }) {
-  const { wallets, wallet, publicKey, connected, connecting, select, disconnect, signMessage } = useWallet();
+  const { wallet, publicKey, connected, connecting, disconnect, signMessage } = useWallet();
   const router = useRouter();
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const isClient = useIsClient();
-
-  const detected = wallets.filter(
-    (w) => SUPPORTED.has(w.adapter.name) && w.readyState === WalletReadyState.Installed,
-  );
-  const missing = [...SUPPORTED].filter(([name]) => !detected.some((w) => w.adapter.name === name));
 
   async function signIn() {
     if (!publicKey || !signMessage) {
@@ -78,8 +60,7 @@ export function LoginPanel({ next }: { next: string }) {
   }
 
   const busy = status.kind === "busy" || connecting;
-  const button =
-    "flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50";
+  const button = walletButtonClass;
 
   return (
     <div className="space-y-3">
@@ -92,7 +73,7 @@ export function LoginPanel({ next }: { next: string }) {
             </span>
           </div>
           <button type="button" onClick={() => void signIn()} disabled={busy} className={`${button} bg-violet-600 text-white hover:bg-violet-500`}>
-            {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <LogIn className="size-4" aria-hidden />}
+            {busy ? <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden /> : <LogIn className="size-4" aria-hidden />}
             Sign in
           </button>
           <button
@@ -108,42 +89,8 @@ export function LoginPanel({ next }: { next: string }) {
             Use a different wallet
           </button>
         </>
-      ) : !isClient ? (
-        <p className="flex min-h-11 items-center gap-2 text-sm text-neutral-400">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-          Looking for wallets…
-        </p>
       ) : (
-        <>
-          {detected.map((w) => (
-            <button
-              key={w.adapter.name}
-              type="button"
-              onClick={() => {
-                setStatus({ kind: "idle" });
-                select(w.adapter.name as WalletName);
-              }}
-              disabled={busy}
-              className={`${button} border border-neutral-800 hover:bg-neutral-800`}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- wallet icons are data URIs */}
-              <img src={w.adapter.icon} alt="" className="size-5" />
-              Connect {w.adapter.name}
-            </button>
-          ))}
-          {missing.map(([name, url]) => (
-            <a
-              key={name}
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className={`${button} border border-dashed border-neutral-800 text-neutral-400 hover:bg-neutral-900`}
-            >
-              <ExternalLink className="size-4" aria-hidden />
-              Install {name}
-            </a>
-          ))}
-        </>
+        <WalletConnectButtons disabled={busy} onSelect={() => setStatus({ kind: "idle" })} />
       )}
 
       <div aria-live="polite" className="min-h-5 text-sm">

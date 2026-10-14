@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSimulate } from "@/lib/use-simulate.ts";
+import { OptimizeSection } from "../optimizer/optimize-section.tsx";
 import { ApiErrorAlert } from "./api-error-alert.tsx";
 import { ResultView } from "./result-view.tsx";
 import { TxInput } from "./tx-input.tsx";
@@ -25,7 +26,13 @@ export function Sandbox() {
       {!simulate.isPending && outcome && !outcome.ok && (
         <ApiErrorAlert error={outcome} onRetry={lastTx === null ? undefined : () => run(lastTx)} />
       )}
-      {outcome?.ok && <ResultView result={outcome} />}
+      {outcome?.ok && (
+        <ResultView
+          result={outcome}
+          // Keyed by submission so a new simulation clears the previous optimize result.
+          actions={lastTx === null ? undefined : <OptimizeSection key={simulate.submittedAt} tx={lastTx} />}
+        />
+      )}
     </div>
   );
 }

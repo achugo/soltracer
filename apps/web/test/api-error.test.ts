@@ -44,3 +44,40 @@ describe("describeApiError", () => {
     }
   });
 });
+
+describe("describeApiError for the optimizer", () => {
+  const txError = {
+    instructionIndex: 2,
+    programId: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+    failingProgramId: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+    code: 6001,
+    name: "SlippageToleranceExceeded",
+    message: "Slippage tolerance exceeded",
+    source: "idl" as const,
+    raw: { InstructionError: [2, { Custom: 6001 }] },
+  };
+
+  it("explains OPTIMIZE_NOT_FIXABLE with the decoded error", () => {
+    const view = describeApiError(makeError("OPTIMIZE_NOT_FIXABLE", "Can't fix.", { error: txError }), "optimize");
+    expect(view.title).toBe("Fees and limits can't fix this");
+    expect(view.message).toBe("Can't fix.");
+    expect(view.txError).toEqual(txError);
+    expect(view.retryable).toBe(false);
+  });
+
+  it("ignores malformed refusal details", () => {
+    expect(describeApiError(makeError("OPTIMIZE_NOT_FIXABLE", "x", { error: { name: 1 } })).txError).toBeNull();
+    expect(describeApiError(makeError("OPTIMIZE_NOT_FIXABLE", "x", null)).txError).toBeNull();
+  });
+
+  it("titles unmapped errors by action", () => {
+    expect(describeApiError(makeError("NOT_FOUND", "x")).title).toBe("Simulation failed");
+    expect(describeApiError(makeError("NOT_FOUND", "x"), "optimize").title).toBe("Optimization failed");
+    expect(describeApiError(makeError("NOT_FOUND", "x"), "status").title).toBe("Status check failed");
+  });
+
+  it("keeps rate limits and RPC errors retryable by hand", () => {
+    expect(describeApiError(makeError("RPC_RATE_LIMITED", "429"), "optimize").retryable).toBe(true);
+    expect(describeApiError(makeError("RPC_ERROR", "502"), "optimize").retryable).toBe(true);
+  });
+});

@@ -1,5 +1,15 @@
 import type { ErrorResponse } from "@soltracer/shared/errors";
+import { txErrorSchema, type TxError } from "@soltracer/shared/simulation";
 import { z } from "zod";
+
+/** Which request failed; it only changes the fallback title. */
+export type ApiAction = "simulate" | "optimize" | "status";
+
+const ACTION_TITLE: Record<ApiAction, string> = {
+  simulate: "Simulation failed",
+  optimize: "Optimization failed",
+  status: "Status check failed",
+};
 
 export interface ApiErrorView {
   title: string;
@@ -11,6 +21,8 @@ export interface ApiErrorView {
   tried: { encoding: string; reason: string }[];
   retryable: boolean;
   signIn: boolean;
+  /** OPTIMIZE_NOT_FIXABLE: the decoded error that fees and limits cannot fix, when the engine sent one. */
+  txError: TxError | null;
 }
 
 const triedSchema = z.object({
@@ -22,11 +34,21 @@ const tooLargeSchema = z.object({
   version: z.union([z.literal("legacy"), z.number()]).optional(),
 });
 
+const notFixableSchema = z.object({ error: txErrorSchema });
+
 const versionLabel = (v: "legacy" | number) => (v === "legacy" ? "legacy" : `v${v}`);
 
 /** Maps an API error to user-facing copy. Unknown detail shapes are ignored, never trusted. */
-export function describeApiError(err: ErrorResponse): ApiErrorView {
-  const base: ApiErrorView = { title: "Simulation failed", message: err.message, hint: null, tried: [], retryable: false, signIn: false };
+export function describeApiError(err: ErrorResponse, action: ApiAction = "simulate"): ApiErrorView {
+  const base: ApiErrorView = {
+    title: ACTION_TITLE[action],
+    message: err.message,
+    hint: null,
+    tried: [],
+    retryable: false,
+    signIn: false,
+    txError: null,
+  };
   switch (err.code) {
     case "TX_DECODE_FAILED": {
       const details = triedSchema.safeParse(err.details);
@@ -44,6 +66,15 @@ export function describeApiError(err: ErrorResponse): ApiErrorView {
         : null;
       return { ...base, title: "Transaction is too large", hint };
     }
+    case "OPTIMIZE_NOT_FIXABLE": {
+      const d = notFixableSchema.safeParse(err.details);
+      return {
+        ...base,
+        title: "Fees and limits can't fix this",
+        hint: "Fix the cause shown below, then simulate again.",
+        txError: d.success ? d.data.error : null,
+      };
+    }
     case "VALIDATION_ERROR":
       return { ...base, title: "Invalid input", hint: "Check the pasted transaction and try again." };
     case "RPC_RATE_LIMITED":
@@ -53,7 +84,7 @@ export function describeApiError(err: ErrorResponse): ApiErrorView {
     case "ENGINE_UNAVAILABLE":
       return { ...base, title: "Engine unavailable", hint: "Make sure the engine is running, then retry.", retryable: true };
     case "NOT_ALLOWLISTED":
-      return { ...base, title: "Wallet not allowlisted", hint: "Only wallets in ALLOWLIST can simulate." };
+      return { ...base, title: "Wallet not allowlisted", hint: "Only wallets in ALLOWLIST can use the engine." };
     case "UNAUTHORIZED":
       return { ...base, title: "Signed out", hint: "Your session has ended. Sign in again.", signIn: true };
     default:

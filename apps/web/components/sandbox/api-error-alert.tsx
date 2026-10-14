@@ -2,10 +2,11 @@
 
 import type { ErrorResponse } from "@soltracer/shared/errors";
 import { RotateCw, TriangleAlert } from "lucide-react";
-import { describeApiError } from "@/lib/api-error.ts";
+import { describeApiError, type ApiAction } from "@/lib/api-error.ts";
+import { StatusCard } from "./status-card.tsx";
 
-export function ApiErrorAlert({ error, onRetry }: { error: ErrorResponse; onRetry?: () => void }) {
-  const view = describeApiError(error);
+export function ApiErrorAlert({ error, onRetry, action }: { error: ErrorResponse; onRetry?: () => void; action?: ApiAction }) {
+  const view = describeApiError(error, action);
   return (
     <div role="alert" className="rounded-lg border border-red-900/70 bg-red-950/30 p-4 text-sm">
       <div className="flex items-start gap-3">
@@ -28,6 +29,7 @@ export function ApiErrorAlert({ error, onRetry }: { error: ErrorResponse; onRetr
               </ul>
             </div>
           )}
+          {view.txError && <StatusCard status={{ success: false, error: view.txError }} />}
           {view.hint && <p className="text-neutral-400">{view.hint}</p>}
           <div className="flex flex-wrap gap-2">
             {view.retryable && onRetry && (
