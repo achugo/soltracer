@@ -8,6 +8,24 @@ import { LocalLoadError, type ProgramCache } from "./local/loader.ts";
 import { simulateLocally } from "./local/local-simulator.ts";
 import { simulateWithRpc } from "./rpc-simulator.ts";
 
+/** At most this many local runs at once: each holds programs in memory and blocks while executing. */
+const MAX_CONCURRENT_LOCAL_RUNS = 2;
+let activeLocalRuns = 0;
+const waitingLocalRuns: (() => void)[] = [];
+
+async function withLocalSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (activeLocalRuns < MAX_CONCURRENT_LOCAL_RUNS) activeLocalRuns += 1;
+  else await new Promise<void>((resolve) => waitingLocalRuns.push(resolve)); // the slot is handed over
+  try {
+    return await run();
+  } finally {
+    // Hand the slot straight to the next waiter (FIFO) so a new caller can't slip in between.
+    const next = waitingLocalRuns.shift();
+    if (next) next();
+    else activeLocalRuns -= 1;
+  }
+}
+
 export interface SandboxDeps {
   session: RpcSession;
   caches: SandboxCaches;
@@ -31,7 +49,7 @@ export async function runSandbox(request: SimulateRequest, wallet: string, deps:
     outcome = await rpc(request.tx, session, caches, log);
   } else {
     try {
-      outcome = await local(request.tx, request.overrides, session, caches, programCache, log);
+      outcome = await withLocalSlot(() => local(request.tx, request.overrides, session, caches, programCache, log));
     } catch (err) {
       if (!(err instanceof LocalLoadError)) throw err;
       if (request.overrides.length > 0) {
@@ -53,12 +71,18 @@ export async function runSandbox(request: SimulateRequest, wallet: string, deps:
       engine: outcome.result.engine,
       input: request.tx,
       overrides: request.overrides,
-      result: outcome.result,
+      // Raw override data is kept once, in `overrides`; the result's echo drops it.
+      result: {
+        ...outcome.result,
+        overrides: outcome.result.overrides.map((o) => (o.kind === "data" ? { ...o, dataBase64: "" } : o)),
+      },
     });
     return { ok: true, result: { ...outcome.result, runId } };
   } catch (err) {
     // The simulation itself succeeded; losing the record must not lose the answer.
-    log?.info({ err: err instanceof Error ? err.message : String(err) }, "run not stored");
+    // Don't log the error message: drizzle's includes the full query and its parameters (the run itself).
+    const code = (err as { cause?: { code?: unknown } }).cause?.code;
+    log?.info({ dbCode: typeof code === "string" ? code : null }, "run not stored");
     return outcome;
   }
 }

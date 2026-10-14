@@ -9,7 +9,7 @@ import { runSandbox } from "../../src/sim/sandbox.ts";
 
 const WALLET = "AddressLookupTab1e1111111111111111111111111";
 const RUN_ID = "3f0a9a6e-6c1f-4f61-9d2b-5d1b8f3e2a10";
-const result = (engine: "rpc" | "local") => ({ ok: true, engine, fallbackReason: null, runId: null }) as unknown as SimulationResult;
+const result = (engine: "rpc" | "local") => ({ ok: true, engine, fallbackReason: null, runId: null, overrides: [] }) as unknown as SimulationResult;
 
 function deps(engines: { local?: () => Promise<SimulateOutcome>; rpc?: () => Promise<SimulateOutcome> }) {
   const stored: NewRun[] = [];
@@ -67,6 +67,52 @@ describe("runSandbox", () => {
     );
     expect(out).toMatchObject({ ok: false, status: 422, error: { code: "LOCAL_LOAD_FAILED" } });
     expect(stored).toEqual([]);
+  });
+
+  it("stores raw override data once (in overrides), not again inside the result", async () => {
+    const withData = { ...result("local"), overrides: [{ kind: "data", address: WALLET, dataBase64: "AQIDBA==" }] } as unknown as SimulationResult;
+    const { deps: d, stored } = deps({ local: async () => ({ ok: true, result: withData }) });
+    await runSandbox({ tx: "AQID", engine: "local", overrides: [{ kind: "data", address: WALLET, dataBase64: "AQIDBA==" }] }, WALLET, d);
+    expect(stored[0]?.overrides).toEqual([{ kind: "data", address: WALLET, dataBase64: "AQIDBA==" }]);
+    expect(stored[0]?.result.overrides).toEqual([{ kind: "data", address: WALLET, dataBase64: "" }]);
+  });
+
+  it("runs at most two local simulations at a time", async () => {
+    let active = 0;
+    let peak = 0;
+    const slow = async (): Promise<SimulateOutcome> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active -= 1;
+      return { ok: true, result: result("local") };
+    };
+    const { deps: d } = deps({ local: slow });
+    await Promise.all(Array.from({ length: 6 }, () => runSandbox({ tx: "AQID", engine: "local", overrides: [] }, WALLET, d)));
+    expect(peak).toBe(2);
+  });
+
+  it("never lets a new caller slip past waiters, and frees the slot when a run throws", async () => {
+    let active = 0;
+    let peak = 0;
+    let calls = 0;
+    const flaky = async (): Promise<SimulateOutcome> => {
+      calls += 1;
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 2));
+      active -= 1;
+      if (calls % 2 === 0) throw new LocalLoadError("load failed");
+      return { ok: true, result: result("local") };
+    };
+    const { deps: d } = deps({ local: flaky, rpc: async () => ({ ok: true, result: result("rpc") }) });
+    const first = Array.from({ length: 4 }, () => runSandbox({ tx: "AQID", engine: "local", overrides: [] }, WALLET, d));
+    await new Promise((r) => setTimeout(r, 3)); // join while slots are being handed over
+    const late = Array.from({ length: 4 }, () => runSandbox({ tx: "AQID", engine: "local", overrides: [] }, WALLET, d));
+    const outcomes = await Promise.all([...first, ...late]);
+    expect(peak).toBe(2);
+    expect(outcomes.every((o) => o.ok)).toBe(true);
+    expect(calls).toBe(8);
   });
 
   it("still returns the result, without a run id, if storing the run fails", async () => {

@@ -4,6 +4,7 @@ import { parseMintDecimals, parseTokenAccount, TOKEN_2022_PROGRAM } from "../../
 import type { AccountSnapshot } from "../../rpc/accounts.ts";
 
 const SYSTEM_PROGRAM = "11111111111111111111111111111111" as Address;
+const UPGRADEABLE_LOADER = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" as Address;
 /** Wrapped SOL mints: their token accounts hold the balance as lamports. */
 const NATIVE_MINTS = new Set<string>([
@@ -155,6 +156,10 @@ export async function applyOverrides(
       refuseSysvar(o.address);
       const address = o.address as Address;
       const current = accounts.get(address);
+      // Programs run from mainnet bytecode loaded separately, so a data override couldn't change them.
+      if (current && (current.executable || current.owner === UPGRADEABLE_LOADER)) {
+        throw new OverrideError("Program code can't be overridden; only account data can");
+      }
       const data = new Uint8Array(Buffer.from(o.dataBase64, "base64"));
       accounts.set(address, {
         address,

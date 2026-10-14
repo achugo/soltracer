@@ -108,16 +108,34 @@ function deploySlotOf(programData: Uint8Array): bigint {
   return view(programData).getBigUint64(4, true);
 }
 
+/** Per-run limits so one pasted transaction can't exhaust memory (audit M1). */
+export const DEFAULT_LOAD_LIMITS = { maxPrograms: 32, maxBytes: 128 * 1024 * 1024 };
+
 /**
  * Mainnet state for a local run: every account the transaction touches plus the Clock in one batch,
  * then the executables of the programs among them (cached by programdata address and deploy slot).
  */
-export async function loadState(keys: readonly Address[], session: RpcSession, cache: ProgramCache): Promise<LoadedState> {
+export async function loadState(
+  keys: readonly Address[],
+  session: RpcSession,
+  cache: ProgramCache,
+  limits: { maxPrograms?: number; maxBytes?: number } = {},
+): Promise<LoadedState> {
+  const maxPrograms = limits.maxPrograms ?? DEFAULT_LOAD_LIMITS.maxPrograms;
+  const maxBytes = limits.maxBytes ?? DEFAULT_LOAD_LIMITS.maxBytes;
+  let bytes = 0;
+  const charge = (n: number) => {
+    bytes += n;
+    if (bytes > maxBytes) {
+      throw new LocalLoadError(`This transaction's accounts and programs are too large to run locally (over ${maxBytes} bytes)`);
+    }
+  };
   const wanted = [...new Set([...keys, CLOCK_SYSVAR])];
   const { slot, accounts: snapshots } = await getMultipleAccountsBatched(session.rpc, wanted);
   // Later reads must not be older than this snapshot.
   const minContextSlot = slot ?? undefined;
   const accounts = new Map<Address, AccountSnapshot | null>(wanted.map((k, i) => [k, snapshots[i] ?? null]));
+  for (const account of accounts.values()) charge(account?.data.length ?? 0);
 
   const clockAccount = accounts.get(CLOCK_SYSVAR);
   if (!clockAccount) throw new LocalLoadError("Could not read the Clock sysvar");
@@ -134,6 +152,10 @@ export async function loadState(keys: readonly Address[], session: RpcSession, c
       // e.g. LoaderV4: running without it would look like the user's transaction failing.
       throw new LocalLoadError(`Program ${account.address} uses an unsupported loader (${account.owner})`);
     }
+  }
+
+  if (upgradeable.size + programs.length > maxPrograms) {
+    throw new LocalLoadError(`This transaction invokes more than ${maxPrograms} programs; too many to run locally`);
   }
 
   // Collected locally so a cache eviction during this load can't drop a program this run needs.
@@ -170,6 +192,7 @@ export async function loadState(keys: readonly Address[], session: RpcSession, c
   for (const [pd, programId] of upgradeable) {
     const entry = resolved.get(pd);
     if (!entry) throw new LocalLoadError(`Program ${programId} could not be loaded`);
+    charge(entry.elf.length);
     programs.push({ programId, elf: entry.elf, deploySlot: entry.deploySlot });
   }
 

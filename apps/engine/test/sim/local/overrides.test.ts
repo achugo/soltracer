@@ -78,6 +78,18 @@ describe("applyOverrides", () => {
     expect(out.get(WALLET)).toMatchObject({ lamports: 10n, owner: TOKEN_PROGRAM, data: new Uint8Array([1, 2, 3]) });
   });
 
+  it("refuses data overrides on program code (executables and upgradeable programdata)", async () => {
+    const accounts = base();
+    const program = address("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
+    const programData = address("4Ec7ZxZS6Sbdg5UGSLHbAnM7GQHp2eFd4KYWRexAipQT");
+    const loader = address("BPFLoaderUpgradeab1e11111111111111111111111");
+    accounts.set(program, { address: program, lamports: 1n, owner: loader, executable: true, data: new Uint8Array(36) });
+    accounts.set(programData, { address: programData, lamports: 1n, owner: loader, executable: false, data: new Uint8Array(45) });
+    for (const target of [program, programData]) {
+      await expect(applyOverrides(accounts, [{ kind: "data", address: target, dataBase64: "AQID" }])).rejects.toThrow(/Program code/);
+    }
+  });
+
   it("does not mutate the input map or its accounts", async () => {
     const accounts = base();
     const before = accounts.get(EXISTING)?.data.slice();

@@ -141,6 +141,15 @@ describe("loadState", () => {
     await expect(loadState([PROGRAM], fakeRpc(bad).client.session(), createProgramCache())).rejects.toThrow(LocalLoadError);
   });
 
+  it("refuses a run whose programs and accounts exceed the per-run byte budget", async () => {
+    const huge = { ...ACCOUNTS, [PROGRAMDATA]: { ...(ACCOUNTS[PROGRAMDATA] as NonNullable<(typeof ACCOUNTS)[string]>), data: programData(100n, new Uint8Array(2_000)) } };
+    await expect(loadState([PROGRAM], fakeRpc(huge).client.session(), createProgramCache(), { maxBytes: 1_000 })).rejects.toThrow(/too large to run locally/);
+  });
+
+  it("refuses a run that invokes more programs than the per-run limit", async () => {
+    await expect(loadState([PROGRAM], fakeRpc().client.session(), createProgramCache(), { maxPrograms: 0 })).rejects.toThrow(/programs/);
+  });
+
   it("evicts least-recently-used programs beyond the byte budget", () => {
     const cache = createProgramCache(10);
     cache.put("a" as Address, { deploySlot: 1n, elf: new Uint8Array(6) });
