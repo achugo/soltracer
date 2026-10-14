@@ -14,6 +14,7 @@ import { COMPUTE_BUDGET_PROGRAM, readComputeBudget } from "../tx/compute-budget.
 import { decodeTransactionInput } from "../tx/decode.ts";
 import { LookupTableError, parseLookupTable, resolveAccounts } from "../tx/lookup-tables.ts";
 import { instructionPrograms } from "../tx/programs.ts";
+import { perInstructionUnits } from "./log-cu.ts";
 
 /** Solana's fixed base fee per signature, used when getFeeForMessage cannot price the message. */
 const LAMPORTS_PER_SIGNATURE = 5000n;
@@ -232,6 +233,11 @@ export async function simulateWithRpc(
     logs: [...(sim.value.logs ?? [])],
     slot: Number(sim.context.slot),
     credits: session.credits(),
+    engine: "rpc",
+    fallbackReason: null,
+    perInstruction: perInstructionUnits(sim.value.logs ?? [], instructionPrograms(tx, accounts)),
+    overrides: [],
+    runId: null,
   };
   log?.info({ credits: result.credits, success: status.success, unitsConsumed: result.unitsConsumed }, "simulation done");
   return { ok: true, result: simulationResultSchema.parse(result) };

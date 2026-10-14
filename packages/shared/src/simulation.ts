@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { pubkeySchema } from "./solana.ts";
 
+/** u64 values travel as decimal strings: they can exceed Number.MAX_SAFE_INTEGER. */
+export const u64Schema = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
+
 /** Largest serialized legacy or v0 transaction the network accepts. */
 export const MAX_TX_BYTES = 1232;
 /** Version-1 transactions may be larger. */
@@ -16,16 +19,45 @@ export const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 /** Default limit per non-ComputeBudget instruction when none is set (per the build prompt). */
 export const DEFAULT_CU_PER_INSTRUCTION = 200_000;
 
-/** u64 values travel as decimal strings: they can exceed Number.MAX_SAFE_INTEGER. */
-export const u64Schema = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
 const u64 = u64Schema;
 // The difference of two u64 values still fits in 20 digits.
 const signedAmount = z.string().regex(/^-?\d{1,20}$/, "Must be an integer string");
 
-export const simulateRequestSchema = z.strictObject({
-  // 4096 bytes is ~5.5k characters in base64 or base58.
-  tx: z.string().trim().min(1, "Paste a transaction").max(6000, "Too long to be a transaction"),
-});
+/** Most overrides per run, and the most raw account data all data overrides may carry together. */
+export const MAX_OVERRIDES = 32;
+export const MAX_OVERRIDE_DATA_BYTES = 1024 * 1024;
+
+const base64Data = z
+  .string()
+  .max(Math.ceil(MAX_OVERRIDE_DATA_BYTES / 3) * 4, "Override data is limited to 1 MiB")
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/, "Must be base64");
+
+/** State changes applied before a local run. Amounts are raw u64 strings. */
+export const overrideSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("sol"), address: pubkeySchema, lamports: u64Schema }),
+  z.strictObject({ kind: z.literal("token"), owner: pubkeySchema, mint: pubkeySchema, amount: u64Schema }),
+  z.strictObject({ kind: z.literal("data"), address: pubkeySchema, dataBase64: base64Data, owner: pubkeySchema.optional() }),
+]);
+
+export const engineSchema = z.enum(["local", "rpc"]);
+
+export const simulateRequestSchema = z
+  .strictObject({
+    // 4096 bytes is ~5.5k characters in base64 or base58.
+    tx: z.string().trim().min(1, "Paste a transaction").max(6000, "Too long to be a transaction"),
+    engine: engineSchema.default("local"),
+    overrides: z.array(overrideSchema).max(MAX_OVERRIDES, `At most ${MAX_OVERRIDES} overrides`).default([]),
+  })
+  .refine((r) => r.engine === "local" || r.overrides.length === 0, {
+    path: ["overrides"],
+    message: "Overrides need the local engine",
+  })
+  .refine(
+    (r) =>
+      r.overrides.reduce((n, o) => n + (o.kind === "data" ? o.dataBase64.length : 0), 0) <=
+      Math.ceil(MAX_OVERRIDE_DATA_BYTES / 3) * 4,
+    { path: ["overrides"], message: "Data overrides are limited to 1 MiB in total" },
+  );
 
 export const accountSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("static") }),
@@ -110,6 +142,20 @@ export const simulationResultSchema = z.object({
   slot: z.number().int().min(0),
   /** Helius credits this simulation spent. */
   credits: z.number().int().min(0),
+  /** Where it ran. A local request that could not load state falls back to rpc, with the reason. */
+  engine: engineSchema,
+  fallbackReason: z.string().nullable(),
+  /** CU per top-level instruction, from the "consumed N of M" log lines; null when the program logs none (builtins). */
+  perInstruction: z.array(
+    z.object({
+      index: z.number().int().min(0),
+      programId: pubkeySchema,
+      unitsConsumed: z.number().int().min(0).nullable(),
+    }),
+  ),
+  overrides: z.array(overrideSchema),
+  /** Stored run id; null for internal runs (e.g. the optimizer's checks) that are not stored. */
+  runId: z.uuidv4().nullable(),
 }).superRefine((r, ctx) => {
   const v1 = r.version === 1;
   if (v1 !== (r.computeBudget.priceMicroLamports === null)) {
@@ -125,6 +171,8 @@ export const simulationResultSchema = z.object({
 });
 
 export type SimulateRequest = z.infer<typeof simulateRequestSchema>;
+export type Override = z.infer<typeof overrideSchema>;
+export type Engine = z.infer<typeof engineSchema>;
 export type AccountRef = z.infer<typeof accountRefSchema>;
 export type ComputeBudget = z.infer<typeof computeBudgetSchema>;
 export type TxError = z.infer<typeof txErrorSchema>;

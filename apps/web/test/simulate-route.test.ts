@@ -47,7 +47,7 @@ describe("handleSimulate", () => {
     expect(req?.method).toBe("POST");
     expect(req?.headers.get("authorization")).toBe(`Bearer ${env.ENGINE_TOKEN}`);
     expect(req?.headers.get("x-soltracer-wallet")).toBe(PAYER);
-    expect(await req?.json()).toEqual({ tx: "AQID" });
+    expect(await req?.json()).toEqual({ tx: "AQID", engine: "local", overrides: [] });
   });
 
   it("passes engine errors through with their status", async () => {

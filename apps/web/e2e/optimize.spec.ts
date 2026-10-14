@@ -79,6 +79,11 @@ function ownTransactionResult(signers: string[] = [allowedWallet.address]) {
     logs: [],
     slot: 1,
     credits: 3,
+    engine: "rpc",
+    fallbackReason: null,
+    perInstruction: [],
+    overrides: [],
+    runId: null,
   };
   const preset = { priceMicroLamports: "1000", priorityFeeLamports: "1", totalFeeLamports: String(5000 * signers.length + 1), tx };
   return {
