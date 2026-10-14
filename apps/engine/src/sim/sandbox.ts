@@ -9,7 +9,7 @@ import { simulateLocally } from "./local/local-simulator.ts";
 import { simulateWithRpc } from "./rpc-simulator.ts";
 
 /** At most this many local runs at once: each holds programs in memory and blocks while executing. */
-const MAX_CONCURRENT_LOCAL_RUNS = 2;
+export const MAX_CONCURRENT_LOCAL_RUNS = 2;
 let activeLocalRuns = 0;
 const waitingLocalRuns: (() => void)[] = [];
 
@@ -32,6 +32,8 @@ export interface SandboxDeps {
   programCache: ProgramCache;
   runs: RunStore;
   log?: SimulatorLog;
+  /** Runs LiteSVM (the worker pool in production). */
+  localRunner?: Parameters<typeof simulateLocally>[6];
   /** Engines; injectable for tests. */
   engines?: { local: typeof simulateLocally; rpc: typeof simulateWithRpc };
 }
@@ -49,7 +51,9 @@ export async function runSandbox(request: SimulateRequest, wallet: string, deps:
     outcome = await rpc(request.tx, session, caches, log);
   } else {
     try {
-      outcome = await withLocalSlot(() => local(request.tx, request.overrides, session, caches, programCache, log));
+      outcome = await withLocalSlot(() =>
+        local(request.tx, request.overrides, session, caches, programCache, log, deps.localRunner),
+      );
     } catch (err) {
       if (!(err instanceof LocalLoadError)) throw err;
       if (request.overrides.length > 0) {

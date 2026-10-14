@@ -24,7 +24,7 @@ import {
 import { perInstructionUnits } from "../log-cu.ts";
 import { loadState, LocalLoadError, type ProgramCache } from "./loader.ts";
 import { applyOverrides, OverrideError } from "./overrides.ts";
-import { runLocal } from "./runner.ts";
+import { runLocal, type LocalRunInput, type LocalRunOutput } from "./runner.ts";
 
 /**
  * Runs a pasted transaction in LiteSVM against mainnet state loaded now, with optional overrides.
@@ -38,6 +38,8 @@ export async function simulateLocally(
   caches: SandboxCaches,
   programCache: ProgramCache,
   log?: SimulatorLog,
+  /** Where LiteSVM runs: the worker pool in production, in-thread by default (tests). */
+  run: (input: LocalRunInput) => Promise<LocalRunOutput> = async (input) => runLocal(input),
 ): Promise<SimulateOutcome> {
   const decoded = decodeTransactionInput(input);
   if (!decoded.ok) return { ok: false, status: 400, error: decoded.error };
@@ -62,10 +64,11 @@ export async function simulateLocally(
     throw err;
   }
 
-  let run;
+  let runOut;
   try {
-    run = runLocal({ wire: new Uint8Array(Buffer.from(tx.wireBase64, "base64")), accounts: installed, programs: state.programs, clock: state.clock });
+    runOut = await run({ wire: new Uint8Array(Buffer.from(tx.wireBase64, "base64")), accounts: installed, programs: state.programs, clock: state.clock });
   } catch (err) {
+    if (err instanceof LocalLoadError) throw err;
     throw new LocalLoadError(`LiteSVM could not run this transaction: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -76,9 +79,9 @@ export async function simulateLocally(
   // Deltas are measured from the state the run started from: mainnet plus the overrides.
   const writable = [...new Set(accounts.filter((a) => a.writable).map((a) => a.address as Address))];
   const preStates = writable.map((a) => toState(installed.get(a) ?? null));
-  const postStates: (AccountState | null)[] = run.err
-    ? feeOnlyPostState(writable, preStates, accounts[0]?.address as Address | undefined, feeWasCharged(run.err) ? totalFee : 0n)
-    : writable.map((a, i) => run.post.get(a) ?? preStates[i] ?? null);
+  const postStates: (AccountState | null)[] = runOut.err
+    ? feeOnlyPostState(writable, preStates, accounts[0]?.address as Address | undefined, feeWasCharged(runOut.err) ? totalFee : 0n)
+    : writable.map((a, i) => runOut.post.get(a) ?? preStates[i] ?? null);
   const changes = diffBalances(writable, preStates, postStates);
 
   // Mint decimals: from the loaded state when present, otherwise the cache or one read.
@@ -92,7 +95,7 @@ export async function simulateLocally(
   const decimals = new Map([...local, ...(missing.length > 0 ? await loadDecimals(session, caches, missing) : [])]);
 
   const programs = instructionPrograms(tx, accounts);
-  const status = await decodeStatus(run.err, run.logs, programs, session, caches);
+  const status = await decodeStatus(runOut.err, runOut.logs, programs, session, caches);
 
   const result: SimulationResult = {
     ok: true,
@@ -101,16 +104,16 @@ export async function simulateLocally(
     signed: tx.signed,
     accounts,
     computeBudget,
-    unitsConsumed: Number(run.unitsConsumed),
+    unitsConsumed: Number(runOut.unitsConsumed),
     status,
     fee: { baseLamports: baseFee.toString(), priorityLamports: priority.toString(), totalLamports: totalFee.toString() },
     balances: formatBalances(changes, decimals),
-    logs: run.logs,
+    logs: runOut.logs,
     slot: Number(state.clock.slot),
     credits: session.credits(),
     engine: "local",
     fallbackReason: null,
-    perInstruction: perInstructionUnits(run.logs, programs),
+    perInstruction: perInstructionUnits(runOut.logs, programs),
     overrides: [...overrides],
     runId: null,
   };
