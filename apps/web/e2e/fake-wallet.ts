@@ -14,7 +14,13 @@ export async function installFakeWallet(
     ({ name, address, publicKey, jwk }) => {
       const pubkey = new Uint8Array(publicKey);
       const chains = ["solana:mainnet", "solana:devnet"] as const;
-      const account = { address, publicKey: pubkey, chains, features: ["solana:signMessage"] as const, label: "e2e" };
+      const account = {
+        address,
+        publicKey: pubkey,
+        chains,
+        features: ["solana:signMessage", "solana:signAndSendTransaction", "solana:signTransaction"] as const,
+        label: "e2e",
+      };
       const listeners = new Set<(props: { accounts: (typeof account)[] }) => void>();
       let accounts: (typeof account)[] = [];
       const keyPromise = crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["sign"]);
@@ -59,6 +65,21 @@ export async function installFakeWallet(
                   signedMessage: message,
                   signature: new Uint8Array(await crypto.subtle.sign("Ed25519", key, new Uint8Array(message))),
                 })),
+              );
+            },
+          },
+          // Signs locally and records what it was asked to send; never touches a network.
+          "solana:signAndSendTransaction": {
+            version: "1.0.0",
+            supportedTransactionVersions: ["legacy", 0],
+            signAndSendTransaction: async (...inputs: { transaction: Uint8Array }[]) => {
+              const key = await keyPromise;
+              const sent = ((window as unknown as { __sent?: Uint8Array[] }).__sent ??= []);
+              return Promise.all(
+                inputs.map(async ({ transaction }) => {
+                  sent.push(transaction);
+                  return { signature: new Uint8Array(await crypto.subtle.sign("Ed25519", key, new Uint8Array(transaction))) };
+                }),
               );
             },
           },
