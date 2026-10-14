@@ -4,10 +4,13 @@ export interface SlotFee {
   prioritizationFee: bigint;
 }
 
-/** Accounts' p75 must be this many times the network's... */
-export const CONTENTION_RATIO = 3n;
-/** ...and at least this many micro-lamports per CU, to count as contended. */
-export const CONTENTION_FLOOR = 10_000n;
+/**
+ * Contended = the write-locked accounts were busy (a paid fee in at least this share of recent
+ * slots) and expensive (p75 at least this many micro-lamports per CU). There is no usable network
+ * baseline: getRecentPrioritizationFees without accounts reports each slot's minimum, which is 0.
+ */
+export const CONTENTION_MIN_PAID_SHARE = 0.9;
+export const CONTENTION_MIN_P75 = 100_000n;
 
 /** Nearest-rank percentile: the value at position ceil(p/100 x n) in sorted order. */
 export function percentile(values: readonly bigint[], p: number): bigint {
@@ -29,15 +32,15 @@ export function feePresets(series: readonly SlotFee[]): { p50: bigint; p75: bigi
   return { p50: percentile(fees, 50), p75: percentile(fees, 75), p90: percentile(fees, 90) };
 }
 
-/** Compares the write-locked accounts' recent p75 with the whole network's. */
-export function detectContention(
-  accounts: readonly SlotFee[],
-  global: readonly SlotFee[],
-): { accountsP75: bigint; globalP75: bigint; contended: boolean } {
-  const a = paid(accounts);
-  const g = paid(global);
-  const accountsP75 = a.length > 0 ? percentile(a, 75) : 0n;
-  const globalP75 = g.length > 0 ? percentile(g, 75) : 0n;
-  const contended = accountsP75 >= CONTENTION_FLOOR && accountsP75 >= CONTENTION_RATIO * globalP75;
-  return { accountsP75, globalP75, contended };
+/** Whether the write-locked accounts are contended, from their recent per-slot fees. */
+export function detectContention(accounts: readonly SlotFee[]): {
+  accountsP75: bigint;
+  paidSlotShare: number;
+  contended: boolean;
+} {
+  const fees = paid(accounts);
+  const accountsP75 = fees.length > 0 ? percentile(fees, 75) : 0n;
+  const paidSlotShare = accounts.length > 0 ? fees.length / accounts.length : 0;
+  const contended = paidSlotShare >= CONTENTION_MIN_PAID_SHARE && accountsP75 >= CONTENTION_MIN_P75;
+  return { accountsP75, paidSlotShare, contended };
 }

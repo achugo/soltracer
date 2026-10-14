@@ -1,3 +1,4 @@
+import bs58 from "bs58";
 import { buildLoginMessage, errorResponseSchema, nonceResponseSchema, NONCE_TTL_MS } from "@soltracer/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -375,5 +376,38 @@ describe("POST /simulate", () => {
   it("is unavailable when the engine was started without a simulator", async () => {
     const res = await app.inject({ method: "POST", url: "/simulate", headers: { ...auth, ...wallet }, payload: { tx: "AQID" } });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /optimize and /tx-status", () => {
+  const wallet = { "x-soltracer-wallet": allowed.publicKey };
+
+  async function call(deps: Partial<Parameters<typeof buildServer>[0]>, url: string, payload: unknown) {
+    const server = buildServer({ config: testConfig, nonceStore: new MemoryNonceStore(), logger: false, ...deps });
+    const res = await server.inject({ method: "POST", url, headers: { ...auth, ...wallet }, payload: payload as object });
+    await server.close();
+    return { status: res.statusCode, body: res.json() as unknown };
+  }
+
+  it("validates the optimize body and defaults the preset to p75", async () => {
+    let seen: unknown;
+    const optimize = async (input: unknown) => {
+      seen = input;
+      return { ok: false as const, status: 422, error: { ok: false as const, code: "OPTIMIZE_NOT_FIXABLE" as const, message: "no", details: null } };
+    };
+    expect((await call({ optimize }, "/optimize", { tx: "AQID", preset: "p99" })).status).toBe(400);
+    const res = await call({ optimize }, "/optimize", { tx: "AQID" });
+    expect(seen).toEqual({ tx: "AQID", preset: "p75" });
+    expect(res.status).toBe(422);
+    expect(errorResponseSchema.parse(res.body).code).toBe("OPTIMIZE_NOT_FIXABLE");
+  });
+
+  it("returns a signature's status, or null when unknown, and validates the signature", async () => {
+    const sig = bs58.encode(new Uint8Array(64).fill(3));
+    const found = await call({ txStatus: async () => ({ confirmationStatus: "confirmed", err: null, slot: 9 }) }, "/tx-status", { signature: sig });
+    expect(found).toEqual({ status: 200, body: { ok: true, status: { confirmationStatus: "confirmed", err: null, slot: 9 } } });
+    const missing = await call({ txStatus: async () => null }, "/tx-status", { signature: sig });
+    expect(missing.body).toEqual({ ok: true, status: null });
+    expect((await call({ txStatus: async () => null }, "/tx-status", { signature: "nope" })).status).toBe(400);
   });
 });

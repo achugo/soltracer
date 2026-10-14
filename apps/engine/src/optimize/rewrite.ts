@@ -99,3 +99,22 @@ export function nonBudgetInstructions(tx: DecodedTransaction, accounts: readonly
       data: Buffer.from(ix.data ?? new Uint8Array()).toString("hex"),
     }));
 }
+
+/** ComputeBudget instructions cost this many CU each when they run. */
+export const BUDGET_INSTRUCTION_CU = 150;
+
+/**
+ * CU the rewrite adds by inserting SetComputeUnitLimit/SetComputeUnitPrice where the original had
+ * none (legacy/v0). v1 keeps its budget in the message config, which costs nothing to execute.
+ */
+export function addedBudgetCost(tx: DecodedTransaction, accounts: readonly AccountRef[]): number {
+  if (tx.version === 1) return 0;
+  const message = decompileTransactionMessage(tx.compiled, { addressesByLookupTableAddress: tablesFrom(accounts) });
+  const present = new Set(
+    message.instructions
+      .filter((ix) => ix.programAddress === COMPUTE_BUDGET_PROGRAM)
+      .map((ix) => ix.data?.[0])
+      .filter((d) => d === 2 || d === 3), // 2 = SetComputeUnitLimit, 3 = SetComputeUnitPrice
+  );
+  return (2 - present.size) * BUDGET_INSTRUCTION_CU;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTENTION_FLOOR, CONTENTION_RATIO, detectContention, feePresets, percentile } from "../../src/optimize/fees.ts";
+import { CONTENTION_MIN_P75, CONTENTION_MIN_PAID_SHARE, detectContention, feePresets, percentile } from "../../src/optimize/fees.ts";
 
 const series = (...fees: number[]) => fees.map((f, i) => ({ slot: BigInt(1000 + i), prioritizationFee: BigInt(f) }));
 
@@ -36,25 +36,28 @@ describe("feePresets", () => {
 });
 
 describe("detectContention", () => {
-  it("flags accounts whose p75 is at least the ratio above the network and over the floor", () => {
-    const out = detectContention(series(0, 50_000, 60_000, 70_000), series(5_000, 10_000, 15_000, 20_000));
-    expect(out).toEqual({ accountsP75: 70_000n, globalP75: 15_000n, contended: true });
+  it("flags accounts that paid in nearly every recent slot at a high p75", () => {
+    const busy = series(...Array.from({ length: 20 }, (_, i) => 100_000 + i * 10_000));
+    expect(detectContention(busy)).toEqual({ accountsP75: 240_000n, paidSlotShare: 1, contended: true });
   });
 
-  it("does not flag when the gap is smaller than the ratio", () => {
-    const out = detectContention(series(20_000, 30_000, 40_000), series(10_000, 15_000, 20_000));
-    expect(out.contended).toBe(false);
+  it("does not flag cheap accounts even when they are busy", () => {
+    const out = detectContention(series(...Array.from({ length: 20 }, () => 17_806)));
+    expect(out).toMatchObject({ paidSlotShare: 1, contended: false });
   });
 
-  it("does not flag tiny fees even when the ratio is large", () => {
-    const out = detectContention(series(900, 1_000), series(1, 2));
-    expect(out.contended).toBe(false);
-    expect(CONTENTION_FLOOR).toBe(10_000n);
-    expect(CONTENTION_RATIO).toBe(3n);
+  it("does not flag expensive accounts that were rarely touched", () => {
+    const rare = series(...Array.from({ length: 20 }, (_, i) => (i < 5 ? 500_000 : 0)));
+    expect(detectContention(rare)).toEqual({ accountsP75: 500_000n, paidSlotShare: 0.25, contended: false });
   });
 
-  it("treats a network with no paid slots as zero and flags only above the floor", () => {
-    expect(detectContention(series(20_000), series(0, 0))).toEqual({ accountsP75: 20_000n, globalP75: 0n, contended: true });
-    expect(detectContention(series(0), series(0))).toEqual({ accountsP75: 0n, globalP75: 0n, contended: false });
+  it("handles an empty or all-zero series", () => {
+    expect(detectContention([])).toEqual({ accountsP75: 0n, paidSlotShare: 0, contended: false });
+    expect(detectContention(series(0, 0))).toEqual({ accountsP75: 0n, paidSlotShare: 0, contended: false });
+  });
+
+  it("uses the agreed thresholds", () => {
+    expect(CONTENTION_MIN_PAID_SHARE).toBe(0.9);
+    expect(CONTENTION_MIN_P75).toBe(100_000n);
   });
 });

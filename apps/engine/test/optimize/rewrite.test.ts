@@ -13,7 +13,7 @@ import {
 } from "@solana/kit";
 import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
-import { nonBudgetInstructions, rewriteTransaction } from "../../src/optimize/rewrite.ts";
+import { addedBudgetCost, nonBudgetInstructions, rewriteTransaction } from "../../src/optimize/rewrite.ts";
 import { readComputeBudget } from "../../src/tx/compute-budget.ts";
 import { decodeTransactionInput, type DecodedTransaction } from "../../src/tx/decode.ts";
 import { resolveAccounts } from "../../src/tx/lookup-tables.ts";
@@ -142,6 +142,17 @@ describe("rewriteTransaction", () => {
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.code).toBe("TX_TOO_LARGE");
+  });
+});
+
+describe("addedBudgetCost", () => {
+  it("charges 150 CU for each limit/price instruction a legacy or v0 rewrite adds", () => {
+    expect(addedBudgetCost(fixture("sol-transfer").tx, fixture("sol-transfer").accounts)).toBe(300);
+    expect(addedBudgetCost(fixture("jupiter-swap-alt").tx, fixture("jupiter-swap-alt").accounts)).toBe(0);
+  });
+
+  it("charges nothing for v1, whose budget lives in the message config", () => {
+    expect(addedBudgetCost(fixture("v1-transaction").tx, fixture("v1-transaction").accounts)).toBe(0);
   });
 });
 

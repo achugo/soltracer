@@ -2,6 +2,7 @@ import { PgNonceStore } from "./auth/nonce-store.ts";
 import { createPgCaches } from "./cache/pg.ts";
 import { createRpcClient } from "./rpc/client.ts";
 import { createRateLimiter } from "./rpc/rate-limiter.ts";
+import { optimizeWithRpc, signatureStatus } from "./optimize/optimizer.ts";
 import { simulateWithRpc } from "./sim/rpc-simulator.ts";
 import { loadConfig } from "./config.ts";
 import { createDb } from "./db/client.ts";
@@ -38,6 +39,8 @@ const app = buildServer({
   nonceStore,
   logger: { level: "info", redact: ["req.headers.authorization"] },
   simulate: (tx, log, signal) => simulateWithRpc(tx, rpc.session({ signal }), caches, log),
+  optimize: (input, log, signal) => optimizeWithRpc(input, rpc.session({ signal }), caches, log),
+  txStatus: (signature, signal) => signatureStatus(rpc.session({ signal }), signature),
 });
 
 const prune = setInterval(() => {

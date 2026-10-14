@@ -50,7 +50,7 @@ const result: OptimizeResult = {
   chosen: "p75",
   blockhash: key(7),
   lastValidBlockHeight: "300000150",
-  contention: { accountsP75: "50000", globalP75: "5000" },
+  contention: { accountsP75: "250000", paidSlotShare: 0.98 },
   warnings: [{ code: "CONTENTION", message: "hot" }],
   credits: 11,
 };
@@ -69,6 +69,10 @@ describe("optimizeRequestSchema", () => {
 describe("optimizeResultSchema", () => {
   it("accepts a full result", () => {
     expect(optimizeResultSchema.parse(result)).toEqual(result);
+  });
+
+  it("rejects a paid-slot share outside 0..1", () => {
+    expect(optimizeResultSchema.safeParse({ ...result, contention: { accountsP75: "1", paidSlotShare: 1.5 } }).success).toBe(false);
   });
 
   it("accepts no contention data and rejects non-u64 preset fees", () => {

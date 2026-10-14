@@ -2,9 +2,13 @@ import {
   makeError,
   nonceResponseSchema,
   engineVerifyRequestSchema,
+  optimizeRequestSchema,
   simulateRequestSchema,
+  txStatusRequestSchema,
+  txStatusResultSchema,
   verifyResponseSchema,
 } from "@soltracer/shared";
+import type { OptimizeRequest, TxStatusResult } from "@soltracer/shared/optimize";
 import Fastify, { type FastifyServerOptions } from "fastify";
 import { z } from "zod";
 import { hasEngineToken } from "./auth/engine-token.ts";
@@ -14,6 +18,7 @@ import type { NonceStore } from "./auth/nonce-store.ts";
 import type { EngineConfig } from "./config.ts";
 import { abortWhenClientLeaves } from "./abort-on-close.ts";
 import { RpcAbortedError, RpcError } from "./rpc/client.ts";
+import type { OptimizeOutcome } from "./optimize/optimizer.ts";
 import type { SimulateOutcome, SimulatorLog } from "./sim/rpc-simulator.ts";
 
 const errorShape = z
@@ -28,9 +33,12 @@ export interface ServerDeps {
   logger?: FastifyServerOptions["logger"];
   /** RPC sandbox; omitted in tests that don't need it. */
   simulate?: (tx: string, log: SimulatorLog, signal: AbortSignal) => Promise<SimulateOutcome>;
+  /** Landing optimizer; returns unsigned transactions only. */
+  optimize?: (input: OptimizeRequest, log: SimulatorLog, signal: AbortSignal) => Promise<OptimizeOutcome>;
+  txStatus?: (signature: string, signal: AbortSignal) => Promise<TxStatusResult["status"]>;
 }
 
-export function buildServer({ config, nonceStore, logger = true, simulate }: ServerDeps) {
+export function buildServer({ config, nonceStore, logger = true, simulate, optimize, txStatus }: ServerDeps) {
   const app = Fastify({ logger, bodyLimit: 64 * 1024 });
 
   app.addHook("onRequest", async (req, reply) => {
@@ -110,6 +118,28 @@ export function buildServer({ config, nonceStore, logger = true, simulate }: Ser
       const outcome = await simulate(body.data.tx, req.log, abortWhenClientLeaves(reply.raw));
       if (!outcome.ok) return reply.code(outcome.status).send(outcome.error);
       return outcome.result;
+    });
+  }
+
+  if (optimize) {
+    app.post("/optimize", async (req, reply) => {
+      const body = optimizeRequestSchema.safeParse(req.body);
+      if (!body.success) {
+        const issues = body.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+        return reply.code(400).send(makeError("VALIDATION_ERROR", "Invalid optimize request.", issues));
+      }
+      const outcome = await optimize(body.data, req.log, abortWhenClientLeaves(reply.raw));
+      if (!outcome.ok) return reply.code(outcome.status).send(outcome.error);
+      return outcome.result;
+    });
+  }
+
+  if (txStatus) {
+    app.post("/tx-status", async (req, reply) => {
+      const body = txStatusRequestSchema.safeParse(req.body);
+      if (!body.success) return reply.code(400).send(makeError("VALIDATION_ERROR", "Invalid signature."));
+      const status = await txStatus(body.data.signature, abortWhenClientLeaves(reply.raw));
+      return txStatusResultSchema.parse({ ok: true, status });
     });
   }
 

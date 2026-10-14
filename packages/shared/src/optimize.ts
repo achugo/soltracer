@@ -34,8 +34,8 @@ export const optimizeResultSchema = z.object({
   chosen: feePresetSchema,
   blockhash: blockhashSchema,
   lastValidBlockHeight: u64Schema,
-  /** Recent p75 fees (micro-lamports per CU) for the write-locked accounts vs. the whole network. */
-  contention: z.object({ accountsP75: u64Schema, globalP75: u64Schema }).nullable(),
+  /** Recent fees for the write-locked accounts: p75 (micro-lamports per CU) and the share of slots that paid. */
+  contention: z.object({ accountsP75: u64Schema, paidSlotShare: z.number().min(0).max(1) }).nullable(),
   warnings: z.array(optimizeWarningSchema),
   credits: z.number().int().min(0),
 });

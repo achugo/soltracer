@@ -6,6 +6,7 @@
  *   tsx scripts/fixtures.ts record <signature> <name> [--force]
  *   tsx scripts/fixtures.ts record-idl <program> <name> [--force]
  *   tsx scripts/fixtures.ts simulate <fixture-name> [--force]   (runs the simulator, records its calls)
+ *   tsx scripts/fixtures.ts optimize <fixture-name> [--force]   (runs the optimizer at p75, records its calls)
  *
  * kinds: jupiter-alt-success | jupiter-slippage-6001 | sol-transfer | token-2022-transfer | v1-transaction
  */
@@ -17,6 +18,7 @@ import { engineEnvSchema } from "@soltracer/shared";
 import { z } from "zod";
 import { createMemoryCaches } from "../src/cache/memory.ts";
 import { anchorIdlAddress } from "../src/decode/idl-address.ts";
+import { optimizeWithRpc } from "../src/optimize/optimizer.ts";
 import { simulateWithRpc } from "../src/sim/rpc-simulator.ts";
 import { createRpcClient, type RpcCallRecord, type RpcSession } from "../src/rpc/client.ts";
 import { createRateLimiter } from "../src/rpc/rate-limiter.ts";
@@ -190,6 +192,36 @@ async function recordSimulation(name: string, force: boolean) {
   console.log(`Wrote ${outPath} (credits used: ${session.credits()})\n${stringify(summary)}`);
 }
 
+/** Runs the optimizer (cold caches, p75) on a recorded transaction and records every RPC exchange. */
+async function recordOptimization(name: string, force: boolean) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
+  const txPath = `${FIXTURE_DIR}${name}.tx.json`;
+  const outPath = `${FIXTURE_DIR}${name}.opt.json`;
+  if (existsSync(outPath) && !force) throw new Error(`${outPath} exists; pass --force to overwrite`);
+  const fixture = z
+    .object({ rpc: z.array(z.object({ response: z.object({ result: z.object({ transaction: z.tuple([z.string(), z.string()]) }) }) })) })
+    .parse(JSON.parse(await readFile(txPath, "utf8")));
+  const wire = fixture.rpc[0]?.response.result.transaction[0];
+  if (!wire) throw new Error(`${txPath} has no transaction`);
+
+  const records: RpcCallRecord[] = [];
+  const session = client.session({ record: records });
+  const outcome = await optimizeWithRpc({ tx: wire, preset: "p75" }, session, createMemoryCaches());
+  await writeFile(outPath, `${stringify({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: records })}\n`);
+  const summary = outcome.ok
+    ? {
+        limit: outcome.result.computeUnitLimit,
+        before: outcome.result.before.unitsConsumed,
+        after: outcome.result.after.status,
+        presets: Object.fromEntries(Object.entries(outcome.result.presets).map(([k, v]) => [k, v.priceMicroLamports])),
+        contention: outcome.result.contention,
+        warnings: outcome.result.warnings.map((w) => w.code),
+        credits: outcome.result.credits,
+      }
+    : outcome.error;
+  console.log(`Wrote ${outPath} (credits used: ${session.credits()})\n${stringify(summary)}`);
+}
+
 const [command, a, b, c] = process.argv.slice(2);
 if (command === "find" && a) {
   const cap = b === "--max-credits" ? z.coerce.number().int().positive().parse(c) : 300;
@@ -197,6 +229,7 @@ if (command === "find" && a) {
 } else if (command === "record" && a && b) await record(a, b, c === "--force");
 else if (command === "record-idl" && a && b) await recordIdl(a, b, c === "--force");
 else if (command === "simulate" && a) await recordSimulation(a, b === "--force");
+else if (command === "optimize" && a) await recordOptimization(a, b === "--force");
 else {
   console.error(
     "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force]",
