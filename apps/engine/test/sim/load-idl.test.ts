@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
-import { address } from "@solana/kit";
+import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 import { createMemoryCaches } from "../../src/cache/memory.ts";
 import { createRpcClient, type RpcCallRecord } from "../../src/rpc/client.ts";
 import { createRateLimiter } from "../../src/rpc/rate-limiter.ts";
 import { createReplayTransport, parseRecordedJson } from "../../src/rpc/replay.ts";
-import { loadIdl, loadIdlErrors } from "../../src/sim/common.ts";
+import { anchorIdlAddress } from "../../src/decode/idl-address.ts";
+import { loadDecodingIdls, loadIdl, loadIdlErrors } from "../../src/sim/common.ts";
 
 const JUP = address("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 
@@ -47,6 +48,51 @@ describe("loadIdl", () => {
     const { session: s } = session([missing]);
     const caches = createMemoryCaches();
     expect(await loadIdl(s, caches, JUP)).toEqual({ found: false });
+    expect(await caches.idls.get(JUP)).toEqual({ found: false });
+  });
+});
+
+describe("loadDecodingIdls", () => {
+  const WHIRLPOOL = address("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc");
+  const SYSTEM = address("11111111111111111111111111111111");
+  const TOKEN = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+  /** One batched read answering with the recorded Jupiter IDL account and no Whirlpool IDL account. */
+  async function batchRecord(jupiterOwner: Address = JUP): Promise<RpcCallRecord> {
+    const [first] = recorded;
+    if (!first) throw new Error("no recorded call");
+    const idlAccount = (first.response as { result: { value: Record<string, unknown> } }).result.value;
+    return {
+      method: "getMultipleAccounts",
+      params: [[await anchorIdlAddress(JUP), await anchorIdlAddress(WHIRLPOOL)], { encoding: "base64", commitment: "confirmed" }],
+      response: { jsonrpc: "2.0", result: { context: { slot: 1n }, value: [{ ...idlAccount, owner: jupiterOwner }, null] } },
+    } as RpcCallRecord;
+  }
+
+  it("fetch: one batched read for every uncached program, builtins skipped, absence cached", async () => {
+    const { session: s, transport } = session([await batchRecord()]);
+    const caches = createMemoryCaches();
+    const idls = await loadDecodingIdls(s, caches, [SYSTEM, JUP, TOKEN, WHIRLPOOL, JUP], "fetch");
+    expect([...idls.keys()]).toEqual([JUP]);
+    expect(s.credits()).toBe(1);
+    expect(transport.unused()).toBe(0);
+    expect(await caches.idls.get(WHIRLPOOL)).toEqual({ found: false });
+
+    const again = await loadDecodingIdls(s, caches, [JUP, WHIRLPOOL], "fetch");
+    expect([...again.keys()]).toEqual([JUP]);
+    expect(s.credits()).toBe(1); // all cached now
+  });
+
+  it("cached: never reads", async () => {
+    const { session: s } = session([]);
+    expect((await loadDecodingIdls(s, createMemoryCaches(), [JUP, WHIRLPOOL], "cached")).size).toBe(0);
+    expect(s.credits()).toBe(0);
+  });
+
+  it("an account at the IDL address that the program doesn't own is not its IDL", async () => {
+    const { session: s } = session([await batchRecord(WHIRLPOOL)]);
+    const caches = createMemoryCaches();
+    expect((await loadDecodingIdls(s, caches, [JUP, WHIRLPOOL], "fetch")).size).toBe(0);
     expect(await caches.idls.get(JUP)).toEqual({ found: false });
   });
 });

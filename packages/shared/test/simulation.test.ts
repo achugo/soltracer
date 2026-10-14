@@ -59,6 +59,8 @@ const success: SimulationResult = {
   fallbackReason: null,
   perInstruction: [{ index: 0, programId: key(5), unitsConsumed: 120_000 }],
   overrides: [],
+  trace: { nodes: [], failingNodeId: null, complete: true },
+  accountDiffs: [],
   runId: "3f0a9a6e-6c1f-4f61-9d2b-5d1b8f3e2a10",
 };
 

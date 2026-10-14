@@ -43,6 +43,8 @@ export function simulationResult(overrides: Partial<SimulationResult> = {}): Sim
     fallbackReason: null,
     perInstruction: [],
     overrides: [],
+    trace: { nodes: [], failingNodeId: null, complete: true },
+    accountDiffs: [],
     runId: null,
     ...overrides,
   };

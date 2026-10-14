@@ -58,6 +58,7 @@ const app = buildServer({
       runs,
       log,
       localRunner: (input) => localPool.run(input),
+      idlMode: "fetch",
     }),
   optimize: (input, log, signal) => optimizeWithRpc(input, rpc.session({ signal }), caches, log),
   txStatus: (signature, signal) => signatureStatus(rpc.session({ signal }), signature),

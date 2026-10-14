@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { u64Schema, txErrorSchema } from "./simulation.ts";
+import { txErrorSchema, u64Schema } from "./tx-error.ts";
 import { pubkeySchema } from "./solana.ts";
 
 /** Most nodes in one trace. The runtime caps a transaction's instruction trace at 64; this leaves room. */

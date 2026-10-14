@@ -18,6 +18,28 @@ import { LookupTableError, parseLookupTable } from "../tx/lookup-tables.ts";
 export const LAMPORTS_PER_SIGNATURE = 5000n;
 const NO_IDL_PROGRAMS = new Set<Address>([SYSTEM_PROGRAM, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, COMPUTE_BUDGET_PROGRAM as Address]);
 
+/** Builtins, precompiles and native SPL programs: none publishes an Anchor IDL, so none is looked up. */
+const NON_ANCHOR_PROGRAMS = new Set<string>([
+  ...NO_IDL_PROGRAMS,
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",
+  "Vote111111111111111111111111111111111111111",
+  "Stake11111111111111111111111111111111111111",
+  "Config1111111111111111111111111111111111111",
+  "AddressLookupTab1e1111111111111111111111111",
+  "BPFLoader1111111111111111111111111111111111",
+  "BPFLoader2111111111111111111111111111111111",
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+  "LoaderV411111111111111111111111111111111111",
+  "Ed25519SigVerify111111111111111111111111111",
+  "KeccakSecp256k11111111111111111111111111111",
+  "Secp256r1SigVerify1111111111111111111111111",
+]);
+
+/** How a run gets IDLs to decode with: read uncached ones (one batched call), or use only what's cached. */
+export type IdlMode = "fetch" | "cached";
+
 export type SimulateOutcome = { ok: true; result: SimulationResult } | { ok: false; status: number; error: ErrorResponse };
 
 export interface SimulatorLog {
@@ -96,17 +118,53 @@ export async function loadIdl(session: RpcSession, caches: SandboxCaches, progra
   const cached = await caches.idls.get(program);
   if (cached) return cached;
   const account = await session.rpc.getAccountInfo(await anchorIdlAddress(program), { encoding: "base64" }).send();
-  let entry: IdlCacheEntry = { found: false };
-  if (account.value) {
-    try {
-      const json = inflateIdl(new Uint8Array(base64.encode(account.value.data[0])));
-      entry = { found: true, errors: idlErrorsFromJson(json), idl: decodingIdl(json) };
-    } catch (err) {
-      if (!(err instanceof IdlParseError)) throw err;
-    }
-  }
+  // The IDL account is created by the program and owned by it; anything else isn't its IDL.
+  const value = account.value?.owner === program ? account.value : null;
+  const entry = idlEntryFrom(value ? new Uint8Array(base64.encode(value.data[0])) : null);
   await caches.idls.put(program, entry);
   return entry;
+}
+
+/** A cache entry from an IDL account's data (null: no account). Unreadable IDLs count as absent. */
+function idlEntryFrom(data: Uint8Array | null): IdlCacheEntry {
+  if (!data) return { found: false };
+  try {
+    const json = inflateIdl(data);
+    return { found: true, errors: idlErrorsFromJson(json), idl: decodingIdl(json) };
+  } catch (err) {
+    if (!(err instanceof IdlParseError)) throw err;
+    return { found: false };
+  }
+}
+
+/**
+ * IDLs to decode a run's instructions and accounts with, for the programs it touched. In "fetch"
+ * mode the uncached ones are read in one batched call (1 credit) and cached, absent or not.
+ */
+export async function loadDecodingIdls(
+  session: RpcSession,
+  caches: SandboxCaches,
+  programs: readonly string[],
+  mode: IdlMode,
+): Promise<Map<string, NormalizedIdl>> {
+  const idls = new Map<string, NormalizedIdl>();
+  const missing: Address[] = [];
+  for (const program of new Set(programs)) {
+    if (NON_ANCHOR_PROGRAMS.has(program)) continue;
+    const cached = await caches.idls.get(program as Address);
+    if (cached?.found && cached.idl) idls.set(program, cached.idl);
+    else if (!cached) missing.push(program as Address);
+  }
+  if (mode === "cached" || missing.length === 0) return idls;
+  const addresses = await Promise.all(missing.map((p) => anchorIdlAddress(p)));
+  const { accounts } = await getMultipleAccountsBatched(session.rpc, addresses);
+  for (const [i, program] of missing.entries()) {
+    const account = accounts[i];
+    const entry = idlEntryFrom(account?.owner === program ? account.data : null);
+    await caches.idls.put(program, entry);
+    if (entry.found && entry.idl) idls.set(program, entry.idl);
+  }
+  return idls;
 }
 
 /** The IDL's decoding half; null (errors only) when it isn't an IDL we decode or is too large to keep. */

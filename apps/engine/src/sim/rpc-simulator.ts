@@ -9,9 +9,11 @@ import { readComputeBudget } from "../tx/compute-budget.ts";
 import { decodeTransactionInput } from "../tx/decode.ts";
 import { LookupTableError, resolveAccounts } from "../tx/lookup-tables.ts";
 import { instructionPrograms } from "../tx/programs.ts";
+import { diffAccounts } from "../trace/account-diff.ts";
+import { traceRun } from "../trace/run-trace.ts";
+import { diffsWithoutInvalidDecoding } from "../trace/schema-safe.ts";
 import {
   base64,
-  decodeStatus,
   feeOnlyPostState,
   feeWasCharged,
   formatBalances,
@@ -19,6 +21,7 @@ import {
   loadDecimals,
   loadTables,
   toState,
+  type IdlMode,
   type SimulateOutcome,
   type SimulatorLog,
 } from "./common.ts";
@@ -36,6 +39,8 @@ export async function simulateWithRpc(
   session: RpcSession,
   caches: SandboxCaches,
   log?: SimulatorLog,
+  /** "fetch" reads IDLs for decoding (sandbox runs); "cached" uses only cached ones (optimizer checks, replays). */
+  idlMode: IdlMode = "cached",
 ): Promise<SimulateOutcome> {
   const decoded = decodeTransactionInput(input);
   if (!decoded.ok) return { ok: false, status: 400, error: decoded.error };
@@ -100,7 +105,17 @@ export async function simulateWithRpc(
   const changes = diffBalances(writable, preStates, postStates);
   const decimals = await loadDecimals(session, caches, changes.mints);
 
-  const status = await decodeStatus(sim.value.err, sim.value.logs ?? [], instructionPrograms(tx, accounts), session, caches);
+  // rpc runs see only top-level instruction data: inner instructions aren't requested from simulateTransaction.
+  const { status, trace, idls } = await traceRun({
+    err: sim.value.err,
+    logs: sim.value.logs ?? [],
+    tx,
+    accounts,
+    inner: null,
+    session,
+    caches,
+    idlMode,
+  });
 
   const result: SimulationResult = {
     ok: true,
@@ -124,6 +139,8 @@ export async function simulateWithRpc(
     fallbackReason: null,
     perInstruction: perInstructionUnits(sim.value.logs ?? [], instructionPrograms(tx, accounts)),
     overrides: [],
+    trace,
+    accountDiffs: diffsWithoutInvalidDecoding(diffAccounts(writable, preStates, postStates, (owner) => idls.get(owner) ?? null)),
     runId: null,
   };
   log?.info({ credits: result.credits, success: status.success, unitsConsumed: result.unitsConsumed }, "simulation done");

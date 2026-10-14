@@ -17,10 +17,19 @@ async function simulate(page: Page) {
   await page.getByRole("button", { name: /^simulate/i }).click();
 }
 
-/** IDL lookups the fake RPC had to answer "no account" so far (successful runs must cause none). */
-async function idlMisses(): Promise<number> {
+async function fakeRpcStats(): Promise<{ idlMisses: number; idlBatchReads: number }> {
   const res = await fetch(`http://127.0.0.1:${E2E_FAKE_RPC_PORT}/__stats`);
-  return ((await res.json()) as { idlMisses: number }).idlMisses;
+  return (await res.json()) as { idlMisses: number; idlBatchReads: number };
+}
+
+/** IDL error-table lookups the fake RPC had to answer "no account" so far (successful runs must cause none). */
+async function idlMisses(): Promise<number> {
+  return (await fakeRpcStats()).idlMisses;
+}
+
+/** Batched IDL reads for decoding traces so far (once a run's programs are cached, repeats cause none). */
+async function idlBatchReads(): Promise<number> {
+  return (await fakeRpcStats()).idlBatchReads;
 }
 
 const status = (page: Page) => page.getByRole("region", { name: "Status" }).first();
@@ -46,6 +55,7 @@ test("a USDC override turns the swap into a failure at 0 and back into a success
   await simulate(page);
   await expect(status(page)).toContainText("Success");
   expect(await idlMisses()).toBe(before);
+  const batchReads = await idlBatchReads();
 
   await page.getByRole("button", { name: "Add override" }).click();
   await page.getByLabel("Override 1 kind").selectOption("token");
@@ -60,6 +70,7 @@ test("a USDC override turns the swap into a failure at 0 and back into a success
   await simulate(page);
   await expect(status(page)).toContainText("Success");
   await expect(page.getByText(/not mainnet state/)).toBeVisible();
+  expect(await idlBatchReads()).toBe(batchReads); // the programs' IDLs (or their absence) were cached by the first run
 });
 
 test("a local run that falls back to RPC says why", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { getTransactionDecoder, lamports, type Address } from "@solana/kit";
-import { Clock, FailedTransactionMetadata, LiteSVM } from "litesvm";
+import { Clock, FailedTransactionMetadata, LiteSVM, type TransactionMetadata } from "litesvm";
 import type { AccountSnapshot } from "../../rpc/accounts.ts";
 import type { AccountState } from "../../diff/balances.ts";
 import type { ClockValues, LoadedProgram } from "./loader.ts";
@@ -77,10 +77,20 @@ export interface LocalRunInput {
   clock: ClockValues;
 }
 
+/** One CPI, as plain data (it crosses the worker boundary). Indices are into the transaction's accounts. */
+export interface InnerInstruction {
+  programIdIndex: number;
+  accounts: number[];
+  data: Uint8Array;
+  stackHeight: number;
+}
+
 export interface LocalRunOutput {
   /** null on success; otherwise the RPC-shaped error. */
   err: unknown;
   logs: string[];
+  /** CPIs per top-level instruction, in execution order. */
+  inner: InnerInstruction[][];
   unitsConsumed: bigint;
   /** Post-state of the transaction's accounts (empty when it failed). */
   post: Map<Address, AccountState>;
@@ -114,11 +124,26 @@ export function runLocal({ wire, accounts, programs, clock }: LocalRunInput): Lo
   const result = svm.simulateTransaction(getTransactionDecoder().decode(wire));
   if (result instanceof FailedTransactionMetadata) {
     const meta = result.meta();
-    return { err: liteSvmErrorToRpc(result.err()), logs: meta.logs(), unitsConsumed: meta.computeUnitsConsumed(), post: new Map() };
+    return {
+      err: liteSvmErrorToRpc(result.err()),
+      logs: meta.logs(),
+      inner: innerInstructions(meta),
+      unitsConsumed: meta.computeUnitsConsumed(),
+      post: new Map(),
+    };
   }
   const meta = result.meta();
   const post = new Map<Address, AccountState>(
     result.postAccounts().map((a) => [a.address, { lamports: a.lamports, owner: a.programAddress, data: new Uint8Array(a.data) }]),
   );
-  return { err: null, logs: meta.logs(), unitsConsumed: meta.computeUnitsConsumed(), post };
+  return { err: null, logs: meta.logs(), inner: innerInstructions(meta), unitsConsumed: meta.computeUnitsConsumed(), post };
+}
+
+function innerInstructions(meta: TransactionMetadata): InnerInstruction[][] {
+  return meta.innerInstructions().map((list) =>
+    list.map((inner) => {
+      const ix = inner.instruction();
+      return { programIdIndex: ix.programIdIndex(), accounts: [...ix.accounts()], data: new Uint8Array(ix.data()), stackHeight: inner.stackHeight() };
+    }),
+  );
 }

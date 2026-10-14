@@ -21,8 +21,8 @@ export const normalizedIdlSchema = z.object({
       args: z.array(z.object({ name: z.string(), type: z.json() })),
     }),
   ),
-  accounts: z.array(z.object({ name: z.string(), discriminator })),
-  types: z.array(z.object({ name: z.string(), type: z.json() })),
+  accounts: z.array(z.object({ name: z.string().min(1), discriminator })),
+  types: z.array(z.object({ name: z.string().min(1), type: z.json() })),
 });
 export type NormalizedIdl = z.infer<typeof normalizedIdlSchema>;
 
@@ -43,8 +43,8 @@ const rawIdlSchema = z.object({
       args: z.array(z.object({ name: z.string(), type: z.json() })).default([]),
     }),
   ),
-  accounts: z.array(z.object({ name: z.string(), discriminator: discriminator.optional(), type: z.json().optional() })).default([]),
-  types: z.array(z.object({ name: z.string(), type: z.json() })).default([]),
+  accounts: z.array(z.object({ name: z.string().min(1), discriminator: discriminator.optional(), type: z.json().optional() })).default([]),
+  types: z.array(z.object({ name: z.string().min(1), type: z.json() })).default([]),
 });
 
 /** Deepest JSON nesting accepted in an IDL; real IDLs stay far below it, and zod's recursion stays safe. */
@@ -146,7 +146,7 @@ export function decodeIdlInstruction(idl: NormalizedIdl, data: Uint8Array, accou
 export function decodeIdlAccount(idl: NormalizedIdl, data: Uint8Array): { type: string; fields: Record<string, DecodedValue> } | null {
   const account = matchDiscriminator(idl.accounts, data);
   const def = account && typeDefs(idl).get(account.name);
-  if (!account || def === undefined) return null;
+  if (!account || account.name === "" || def === undefined) return null;
   try {
     const value = readValue(new BorshReader(data, account.discriminator.length), { defined: { name: account.name } }, typeDefs(idl));
     // Only named structs have fields to show; anything else renders raw.
