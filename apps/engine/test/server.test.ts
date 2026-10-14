@@ -1,7 +1,7 @@
 import { buildLoginMessage, errorResponseSchema, nonceResponseSchema, NONCE_TTL_MS } from "@soltracer/shared";
 import type { FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RpcError } from "../src/rpc/client.ts";
+import { RpcAbortedError, RpcError } from "../src/rpc/client.ts";
 import { buildServer } from "../src/server.ts";
 import { allowed, ENGINE_TOKEN, stranger, testConfig } from "./helpers/fixtures.ts";
 import { MemoryNonceStore } from "./helpers/memory-nonce-store.ts";
@@ -321,6 +321,55 @@ describe("POST /simulate", () => {
       code: "RPC_ERROR",
       details: { method: "getMultipleAccounts", jsonRpcCode: -32005 },
     });
+  });
+
+  it("gives the simulator an abort signal that stays live for a normal request", async () => {
+    let signal: AbortSignal | undefined;
+    await withSimulate(async (_tx, _log, s) => {
+      signal = s;
+      return { ok: false, status: 400, error: { ok: false, code: "TX_DECODE_FAILED", message: "x", details: null } };
+    }, { tx: "AQID" });
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+  });
+
+  it("aborts the simulator's signal when a real HTTP client disconnects mid-request", async () => {
+    let resolveSeen: (s: AbortSignal) => void = () => undefined;
+    const seen = new Promise<AbortSignal>((r) => (resolveSeen = r));
+    const server = buildServer({
+      config: testConfig,
+      nonceStore: new MemoryNonceStore(),
+      logger: false,
+      simulate: (_tx, _log, signal) => {
+        resolveSeen(signal);
+        return new Promise(() => undefined); // never finishes on its own
+      },
+    });
+    const address = await server.listen({ host: "127.0.0.1", port: 0 });
+    try {
+    const client = new AbortController();
+    const request = fetch(`${address}/simulate`, {
+      method: "POST",
+      headers: { ...auth, ...wallet, "content-type": "application/json" },
+      body: JSON.stringify({ tx: "AQID" }),
+      signal: client.signal,
+    }).catch(() => undefined);
+    const signal = await seen;
+    expect(signal.aborted).toBe(false);
+    client.abort();
+    await request;
+    await vi.waitFor(() => expect(signal.aborted).toBe(true), { timeout: 2000, interval: 10 });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("answers 499 with a typed error when the RPC work was cancelled", async () => {
+    const res = await withSimulate(async () => {
+      throw new RpcAbortedError("getBalance");
+    }, { tx: "AQID" });
+    expect(res.status).toBe(499);
+    expect(errorResponseSchema.parse(res.body).code).toBe("ENGINE_UNAVAILABLE");
   });
 
   it("is unavailable when the engine was started without a simulator", async () => {

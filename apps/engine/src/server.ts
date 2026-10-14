@@ -12,7 +12,8 @@ import { issueNonce, verifyLogin } from "./auth/login.ts";
 import { checkSessionWallet, needsSessionWallet, SESSION_WALLET_HEADER } from "./auth/session-wallet.ts";
 import type { NonceStore } from "./auth/nonce-store.ts";
 import type { EngineConfig } from "./config.ts";
-import { RpcError } from "./rpc/client.ts";
+import { abortWhenClientLeaves } from "./abort-on-close.ts";
+import { RpcAbortedError, RpcError } from "./rpc/client.ts";
 import type { SimulateOutcome, SimulatorLog } from "./sim/rpc-simulator.ts";
 
 const errorShape = z
@@ -26,7 +27,7 @@ export interface ServerDeps {
   nonceStore: NonceStore;
   logger?: FastifyServerOptions["logger"];
   /** RPC sandbox; omitted in tests that don't need it. */
-  simulate?: (tx: string, log: SimulatorLog) => Promise<SimulateOutcome>;
+  simulate?: (tx: string, log: SimulatorLog, signal: AbortSignal) => Promise<SimulateOutcome>;
 }
 
 export function buildServer({ config, nonceStore, logger = true, simulate }: ServerDeps) {
@@ -54,6 +55,11 @@ export function buildServer({ config, nonceStore, logger = true, simulate }: Ser
   });
 
   app.setErrorHandler((err, req, reply) => {
+    if (err instanceof RpcAbortedError) {
+      // The client is gone; this reply is never read. 499 marks it in the logs.
+      req.log.info({ method: err.method }, "request closed; rpc work cancelled");
+      return reply.code(499).send(makeError("ENGINE_UNAVAILABLE", "Request cancelled."));
+    }
     if (err instanceof RpcError) {
       // The message is already redacted; keep it out of the response anyway and log it here.
       req.log.warn({ rpcCode: err.code, method: err.method, message: err.message }, "rpc failure");
@@ -101,7 +107,7 @@ export function buildServer({ config, nonceStore, logger = true, simulate }: Ser
         const issues = body.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
         return reply.code(400).send(makeError("VALIDATION_ERROR", "Invalid simulation request.", issues));
       }
-      const outcome = await simulate(body.data.tx, req.log);
+      const outcome = await simulate(body.data.tx, req.log, abortWhenClientLeaves(reply.raw));
       if (!outcome.ok) return reply.code(outcome.status).send(outcome.error);
       return outcome.result;
     });

@@ -12,9 +12,23 @@ interface Waiter {
   resolve: () => void;
 }
 
+/** Thrown when too many callers are already waiting; callers should back off. */
+export class RateLimiterQueueFullError extends Error {
+  override name = "RateLimiterQueueFullError";
+}
+
 const abortError = () => new Error("RPC request aborted while waiting for the rate limiter");
 
-export function createRateLimiter({ limit, windowMs }: { limit: number; windowMs: number }): RateLimiter {
+export function createRateLimiter({
+  limit,
+  windowMs,
+  maxQueue = Number.POSITIVE_INFINITY,
+}: {
+  limit: number;
+  windowMs: number;
+  /** Callers allowed to wait at once; more are rejected so a backlog can't keep spending credits. */
+  maxQueue?: number;
+}): RateLimiter {
   const grants: number[] = [];
   const queue: Waiter[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -40,6 +54,13 @@ export function createRateLimiter({ limit, windowMs }: { limit: number; windowMs
       return new Promise<void>((resolve, reject) => {
         if (signal?.aborted) {
           reject(abortError());
+          return;
+        }
+        const now = Date.now();
+        while (grants[0] !== undefined && grants[0] <= now - windowMs) grants.shift();
+        const mustWait = queue.length > 0 || grants.length >= limit;
+        if (mustWait && queue.length >= maxQueue) {
+          reject(new RateLimiterQueueFullError(`RPC queue is full (${maxQueue} waiting)`));
           return;
         }
         const onAbort = () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRateLimiter } from "../../src/rpc/rate-limiter.ts";
+import { createRateLimiter, RateLimiterQueueFullError } from "../../src/rpc/rate-limiter.ts";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -60,5 +60,20 @@ describe("createRateLimiter", () => {
     await expect(waiting).rejects.toThrow(/abort/i);
     await vi.advanceTimersByTimeAsync(1000);
     await expect(next).resolves.toBeUndefined();
+  });
+});
+
+describe("queue cap", () => {
+  it("rejects new callers once maxQueue are already waiting, and recovers after", async () => {
+    const limiter = createRateLimiter({ limit: 1, windowMs: 1000, maxQueue: 2 });
+    await limiter.take();
+    const a = limiter.take();
+    const b = limiter.take();
+    await expect(limiter.take()).rejects.toBeInstanceOf(RateLimiterQueueFullError);
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(Promise.all([a, b])).resolves.toEqual([undefined, undefined]);
+    const c = limiter.take();
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(c).resolves.toBeUndefined();
   });
 });

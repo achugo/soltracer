@@ -1,7 +1,7 @@
 import { address, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, SolanaError, type RpcTransport } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 import { getMultipleAccountsBatched } from "../../src/rpc/accounts.ts";
-import { createRpcClient, RpcError, type RpcCallRecord } from "../../src/rpc/client.ts";
+import { createRpcClient, RpcAbortedError, RpcError, type RpcCallRecord } from "../../src/rpc/client.ts";
 import { createRateLimiter } from "../../src/rpc/rate-limiter.ts";
 
 const URL_WITH_KEY = "https://rpc.example.com/?api-key=super-secret-key-123";
@@ -152,6 +152,59 @@ describe("createRpcClient", () => {
     expect((err as RpcError).method).toBe("getBalance");
     expect((err as RpcError).message).toContain("<rpc-url>");
     expect((err as RpcError).message).not.toContain("super-secret-key-123");
+  });
+});
+
+describe("session cancellation", () => {
+  it("stops before sending and charges nothing once the session's signal has aborted", async () => {
+    const { transport, seen } = fakeTransport(() => ({ context: { slot: 7 }, value: 5000 }));
+    const { client } = makeClient(transport);
+    const controller = new AbortController();
+    const session = client.session({ signal: controller.signal });
+    controller.abort();
+    const err = await session.rpc.getBalance(address("11111111111111111111111111111111")).send().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RpcAbortedError);
+    expect(seen).toHaveLength(0);
+    expect(session.credits()).toBe(0);
+  });
+
+  it("passes the session signal to the transport so an in-flight request can be cancelled", async () => {
+    let received: AbortSignal | undefined;
+    const inner = (async ({ payload, signal }: { payload: unknown; signal?: AbortSignal }) => {
+      received = signal;
+      return { jsonrpc: "2.0", id: (payload as Payload).id, result: { context: { slot: 1 }, value: 1 } };
+    }) as RpcTransport;
+    const { client } = makeClient(inner);
+    const controller = new AbortController();
+    await client.session({ signal: controller.signal }).rpc.getBalance(address("11111111111111111111111111111111")).send();
+    expect(received?.aborted).toBe(false);
+    controller.abort();
+    expect(received?.aborted).toBe(true);
+  });
+
+  it("reports a call aborted in flight as cancelled, charged but not logged as a failure", async () => {
+    const controller = new AbortController();
+    const inner = (async ({ signal }: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("The operation was aborted")));
+        controller.abort();
+      })) as RpcTransport;
+    const { client, logs } = makeClient(inner);
+    const session = client.session({ signal: controller.signal });
+    const err = await session.rpc.getBalance(address("11111111111111111111111111111111")).send().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RpcAbortedError);
+    expect(session.credits()).toBe(1);
+    expect(logs.some((l) => l.msg === "rpc call failed")).toBe(false);
+  });
+
+  it("maps a full limiter queue to RPC_RATE_LIMITED", async () => {
+    const { transport } = fakeTransport(() => ({ context: { slot: 7 }, value: 5000 }));
+    const limiter = createRateLimiter({ limit: 1, windowMs: 60_000, maxQueue: 0 });
+    const client = createRpcClient({ url: URL_WITH_KEY, limiter, transport, log: { info: () => undefined, warn: () => undefined } });
+    const session = client.session();
+    await session.rpc.getBalance(address("11111111111111111111111111111111")).send();
+    const err = await session.rpc.getBalance(address("11111111111111111111111111111111")).send().catch((e: unknown) => e);
+    expect((err as RpcError).code).toBe("RPC_RATE_LIMITED");
   });
 });
 

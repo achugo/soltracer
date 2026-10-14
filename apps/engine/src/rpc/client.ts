@@ -10,7 +10,7 @@ import {
 } from "@solana/kit";
 import { z } from "zod";
 import { creditsFor } from "./credits.ts";
-import type { RateLimiter } from "./rate-limiter.ts";
+import { RateLimiterQueueFullError, type RateLimiter } from "./rate-limiter.ts";
 
 export type SolanaRpc = Rpc<SolanaRpcApi>;
 
@@ -45,6 +45,14 @@ export class RpcError extends Error {
   }
 }
 
+/** The caller went away (request closed); nothing was or will be charged for the abandoned call. */
+export class RpcAbortedError extends Error {
+  constructor(readonly method: string) {
+    super(`${method} cancelled because the request was closed`);
+    this.name = "RpcAbortedError";
+  }
+}
+
 export interface RpcSession {
   rpc: SolanaRpc;
   /** Credits spent by calls made through this session. */
@@ -53,7 +61,11 @@ export interface RpcSession {
 
 export interface RpcClient {
   /** A metered view of the shared client; one per simulation. `record` captures calls for fixtures. */
-  session(options?: { record?: RpcCallRecord[] }): RpcSession;
+  session(options?: {
+    record?: RpcCallRecord[];
+    /** Aborts every queued and in-flight call of this session (e.g. when the HTTP request closes). */
+    signal?: AbortSignal;
+  }): RpcSession;
 }
 
 export interface RpcClientOptions {
@@ -98,14 +110,26 @@ export function createRpcClient({ url, limiter, log, transport }: RpcClientOptio
         const { method, params } = isJsonRpcPayload(config.payload)
           ? config.payload
           : { method: "unknown", params: undefined };
-        await limiter.take(config.signal);
+        const signals = [config.signal, options.signal].filter((x): x is AbortSignal => x !== undefined);
+        const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+        if (signal?.aborted) throw new RpcAbortedError(method);
+        try {
+          await limiter.take(signal);
+        } catch (err) {
+          if (err instanceof RateLimiterQueueFullError) {
+            log.warn({ rpc: method }, "rpc queue full");
+            throw new RpcError("RPC_RATE_LIMITED", method, `${method} not sent: the RPC queue is full`);
+          }
+          throw new RpcAbortedError(method);
+        }
         const cost = creditsFor(method);
         credits += cost;
         const started = performance.now();
         let response: unknown;
         try {
-          response = await inner(config);
+          response = await inner(signal ? { ...config, signal } : config);
         } catch (err) {
+          if (signal?.aborted) throw new RpcAbortedError(method);
           const rateLimited =
             isSolanaError(err, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR) && err.context.statusCode === 429;
           const message = redact(messageOf(err), url);

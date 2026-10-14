@@ -26,7 +26,7 @@ const caches = createPgCaches(db);
 // The engine's only Helius client: 10 requests in any 1-second window, shared by every request.
 const rpc = createRpcClient({
   url: config.HELIUS_RPC_URL,
-  limiter: createRateLimiter({ limit: 10, windowMs: 1000 }),
+  limiter: createRateLimiter({ limit: 10, windowMs: 1000, maxQueue: 50 }),
   log: {
     info: (obj, msg) => app.log.info(obj, msg),
     warn: (obj, msg) => app.log.warn(obj, msg),
@@ -37,7 +37,7 @@ const app = buildServer({
   config,
   nonceStore,
   logger: { level: "info", redact: ["req.headers.authorization"] },
-  simulate: (tx, log) => simulateWithRpc(tx, rpc.session(), caches, log),
+  simulate: (tx, log, signal) => simulateWithRpc(tx, rpc.session({ signal }), caches, log),
 });
 
 const prune = setInterval(() => {
