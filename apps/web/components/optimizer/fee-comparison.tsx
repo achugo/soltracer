@@ -34,7 +34,9 @@ export function FeeComparisonTable({ comparison, presetLabel }: { comparison: Fe
         <caption className="sr-only">Compute and fees before and after optimizing</caption>
         <thead className="bg-neutral-900">
           <tr>
-            <td className={th} />
+            <th scope="col" className={th}>
+              <span className="sr-only">Metric</span>
+            </th>
             <th scope="col" className={th}>Before (as pasted)</th>
             <th scope="col" className={th}>After ({presetLabel})</th>
           </tr>

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { checkFeePayer, compareFees, describeWarnings, formatShare, presetOptions } from "../lib/optimize-view.ts";
-import { OTHER, PAYER } from "./fixtures-simulation.ts";
+import {
+  checkFeePayer,
+  compareFees,
+  describeWarnings,
+  formatShare,
+  otherRequiredSigners,
+  presetOptions,
+  sendBlock,
+} from "../lib/optimize-view.ts";
+import { OTHER, PAYER, SYSTEM, THIRD } from "./fixtures-simulation.ts";
 import { optimizeResult } from "./fixtures-optimize.ts";
 
 describe("compareFees", () => {
@@ -117,5 +125,49 @@ describe("formatShare", () => {
     [1, "100%"],
   ])("%d -> %s", (share, text) => {
     expect(formatShare(share)).toBe(text);
+  });
+});
+
+const acct = (address: string, signer: boolean, writable = true) => ({
+  address,
+  writable,
+  signer,
+  source: { kind: "static" as const },
+});
+
+describe("otherRequiredSigners", () => {
+  it("is empty when the wallet is the only signer", () => {
+    expect(otherRequiredSigners([acct(PAYER, true), acct(SYSTEM, false, false)], PAYER)).toEqual([]);
+  });
+
+  it("lists every other signer once, in order", () => {
+    const accounts = [acct(PAYER, true), acct(OTHER, true, false), acct(SYSTEM, false), acct(THIRD, true), acct(OTHER, true)];
+    expect(otherRequiredSigners(accounts, PAYER)).toEqual([OTHER, THIRD]);
+  });
+
+  it("includes the fee payer when the wallet is someone else", () => {
+    expect(otherRequiredSigners([acct(PAYER, true), acct(OTHER, true)], OTHER)).toEqual([PAYER]);
+  });
+});
+
+describe("sendBlock", () => {
+  const withAccounts = (accounts: ReturnType<typeof acct>[]) => {
+    const r = optimizeResult();
+    return { ...r, before: { ...r.before, accounts } };
+  };
+
+  it("allows the sole signing fee payer", () => {
+    expect(sendBlock(optimizeResult(), PAYER)).toBeNull();
+  });
+
+  it("blocks a wallet that is not the fee payer", () => {
+    expect(sendBlock(optimizeResult(), OTHER)).toMatchObject({ kind: "fee-payer" });
+    expect(sendBlock(withAccounts([]), PAYER)).toMatchObject({ kind: "fee-payer" });
+  });
+
+  it("blocks a multi-signer transaction and names the other signers", () => {
+    const block = sendBlock(withAccounts([acct(PAYER, true), acct(THIRD, true, false), acct(SYSTEM, false, false)]), PAYER);
+    expect(block).toMatchObject({ kind: "other-signers", signers: [THIRD] });
+    expect(block?.message).toMatch(/can't be sent from SolTracer/);
   });
 });

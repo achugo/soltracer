@@ -3,11 +3,12 @@
 import type { FeePreset, OptimizeResult } from "@soltracer/shared/optimize";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AlertTriangle, CircleCheck, ExternalLink, LoaderCircle, Send, Unplug } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { base64ToBytes } from "@/lib/base64.ts";
-import type { FeePayerCheck } from "@/lib/optimize-view.ts";
+import { sendBlock, type SendBlock } from "@/lib/optimize-view.ts";
 import { findSignAndSend, signAndSendWithWallet, walletErrorMessage } from "@/lib/wallet-standard.ts";
 import { CopyButton } from "../copy-button.tsx";
+import { Address } from "../sandbox/address.tsx";
 import { walletButtonClass, WalletConnectButtons } from "../wallet-connect-buttons.tsx";
 import { TxStatusCheck } from "./tx-status-check.tsx";
 
@@ -46,9 +47,14 @@ function Sent({ signature, preset }: { signature: string; preset: FeePreset }) {
  * The wallet signs and broadcasts via Wallet Standard `solana:signAndSendTransaction`.
  * The browser never sends a transaction and has no RPC connection.
  */
-export function SendPanel({ result, selected, feePayer }: { result: OptimizeResult; selected: FeePreset; feePayer: FeePayerCheck }) {
+export function SendPanel({ result, selected }: { result: OptimizeResult; selected: FeePreset }) {
   const { wallet, publicKey, connected, disconnect } = useWallet();
   const [state, setState] = useState<SendState>({ kind: "idle" });
+  // send() reads the latest wallet, not the one captured at render, so a switch after render can't send.
+  const walletRef = useRef(wallet);
+  useEffect(() => {
+    walletRef.current = wallet;
+  });
 
   if (state.kind === "sent") return <Sent signature={state.signature} preset={state.preset} />;
 
@@ -66,14 +72,26 @@ export function SendPanel({ result, selected, feePayer }: { result: OptimizeResu
   const address = publicKey.toBase58();
   const version = result.before.version;
   const lookup = findSignAndSend(wallet.adapter, address, version);
-  const blocked = feePayer.kind === "mismatch" ? "The connected wallet is not the fee payer." : lookup.ok ? null : lookup.message;
+  const block: SendBlock | null = sendBlock(result, address);
+  const blocked = block ? block.message : lookup.ok ? null : lookup.message;
   const sending = state.kind === "sending";
 
   async function send() {
-    // Look up again at click time: the wallet may have changed accounts since render.
-    const current = wallet ? findSignAndSend(wallet.adapter, address, version) : null;
-    if (!current?.ok) {
-      setState({ kind: "error", message: current?.message ?? "Connect a wallet first." });
+    // Re-check at click time against the wallet's current account, not the one from render.
+    const live = walletRef.current;
+    const liveAddress = live?.adapter.publicKey?.toBase58() ?? null;
+    if (!live || liveAddress === null) {
+      setState({ kind: "error", message: "Connect a wallet first." });
+      return;
+    }
+    const liveBlock = sendBlock(result, liveAddress);
+    if (liveBlock) {
+      setState({ kind: "error", message: liveBlock.message });
+      return;
+    }
+    const current = findSignAndSend(live.adapter, liveAddress, version);
+    if (!current.ok) {
+      setState({ kind: "error", message: current.message });
       return;
     }
     const bytes = base64ToBytes(result.presets[selected].tx);
@@ -125,6 +143,18 @@ export function SendPanel({ result, selected, feePayer }: { result: OptimizeResu
             <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
             <span>Can&apos;t send: {blocked}</span>
           </p>
+        )}
+        {block?.kind === "other-signers" && (
+          <div className="mt-1 pl-6">
+            <p className="text-neutral-400">Other required signers:</p>
+            <ul className="mt-1 space-y-1">
+              {block.signers.map((s) => (
+                <li key={s}>
+                  <Address value={s} className="text-neutral-100" />
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {state.kind === "error" && (
           <p role="alert" className="flex items-start gap-2 text-red-400">

@@ -63,7 +63,7 @@ export function OptimizerPanel({ result }: { result: OptimizeResult }) {
             again if it expires.
           </span>
         </p>
-        <SendPanel result={result} selected={selected} feePayer={feePayer} />
+        <SendPanel result={result} selected={selected} />
       </div>
     </Card>
   );

@@ -1,5 +1,5 @@
 import type { FeePreset, OptimizeResult, OptimizeWarning } from "@soltracer/shared/optimize";
-import type { ComputeBudget } from "@soltracer/shared/simulation";
+import type { AccountRef, ComputeBudget } from "@soltracer/shared/simulation";
 import { formatDelta, groupDigits, LAMPORTS_DECIMALS, lamportsToSol, type SignedAmount } from "./format.ts";
 
 export const FEE_PRESETS: readonly FeePreset[] = ["p50", "p75", "p90"];
@@ -96,6 +96,36 @@ export function checkFeePayer(result: OptimizeResult, wallet: string | null): Fe
   if (wallet === null) return { kind: "no-wallet", feePayer };
   if (feePayer === null) return { kind: "unknown" };
   return feePayer === wallet ? { kind: "match", feePayer } : { kind: "mismatch", feePayer, wallet };
+}
+
+/**
+ * Signers other than the wallet. The rewrite clears every signature, so a wallet can only add its own:
+ * any other required signer means the transaction can never land when sent from here.
+ */
+export function otherRequiredSigners(accounts: readonly AccountRef[], wallet: string): string[] {
+  return [...new Set(accounts.filter((a) => a.signer && a.address !== wallet).map((a) => a.address))];
+}
+
+export type SendBlock =
+  | { kind: "fee-payer"; message: string }
+  | { kind: "other-signers"; signers: string[]; message: string };
+
+/** Why `wallet` cannot sign and send the rewritten transaction, or null when it can. */
+export function sendBlock(result: OptimizeResult, wallet: string): SendBlock | null {
+  const payer = checkFeePayer(result, wallet);
+  if (payer.kind !== "match") {
+    return { kind: "fee-payer", message: "The connected wallet is not the fee payer." };
+  }
+  const signers = otherRequiredSigners(result.before.accounts, wallet);
+  if (signers.length > 0) {
+    return {
+      kind: "other-signers",
+      signers,
+      message:
+        "This transaction needs more signers. They must sign too, and the rewrite clears every signature, so it can't be sent from SolTracer.",
+    };
+  }
+  return null;
 }
 
 export type WarningCode = OptimizeWarning["code"] | "FEE_PAYER_MISMATCH";
