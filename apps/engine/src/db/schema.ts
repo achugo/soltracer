@@ -1,4 +1,4 @@
-import { bigint, boolean, index, jsonb, pgTable, smallint, text, timestamp } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, jsonb, pgTable, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /** Single-use sign-in nonces. A nonce is spent when used_at is set. */
 export const authNonces = pgTable(
@@ -35,3 +35,19 @@ export const idlCache = pgTable("idl_cache", {
   errors: jsonb("errors").$type<[number, string, string][]>(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
+
+/** Every sandbox run: what was pasted, the overrides and the result. Ids are random UUIDs. */
+export const runs = pgTable(
+  "runs",
+  {
+    id: uuid("id").primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    /** Session wallet that ran it; reads are scoped to it. */
+    wallet: text("wallet").notNull(),
+    engine: text("engine", { enum: ["local", "rpc"] }).notNull(),
+    input: text("input").notNull(),
+    overrides: jsonb("overrides").notNull(),
+    result: jsonb("result").notNull(),
+  },
+  (t) => [index("runs_wallet_created_at_idx").on(t.wallet, t.createdAt)],
+);
