@@ -8,6 +8,7 @@
  *   tsx scripts/fixtures.ts simulate <fixture-name> [--force]   (runs the simulator, records its calls)
  *   tsx scripts/fixtures.ts optimize <fixture-name> [--force]   (runs the optimizer at p75, records its calls)
  *   tsx scripts/fixtures.ts compare <fixture-name> [--force]    (rpc then local, back to back; big data -> blobs/)
+ *   tsx scripts/fixtures.ts record-stream <address> <name> [--force] (logsSubscribe frames, then the RPC calls hydration makes)
  *
  * kinds: jupiter-alt-success | jupiter-slippage-6001 | jupiter-usdc-input | sol-transfer | token-2022-transfer | v1-transaction
  */
@@ -24,10 +25,11 @@ import { decodeTransactionInput } from "../src/tx/decode.ts";
 import { simulateWithRpc } from "../src/sim/rpc-simulator.ts";
 import { createProgramCache } from "../src/sim/local/loader.ts";
 import { simulateLocally } from "../src/sim/local/local-simulator.ts";
-import { externalizeBlobs } from "../src/rpc/replay.ts";
+import { externalizeBlobs, parseRecordedJson } from "../src/rpc/replay.ts";
 import { mkdirSync } from "node:fs";
 import { createRpcClient, type RpcCallRecord, type RpcSession } from "../src/rpc/client.ts";
 import { createRateLimiter } from "../src/rpc/rate-limiter.ts";
+import WebSocket from "ws";
 
 const FIXTURE_DIR = fileURLToPath(new URL("../test/fixtures/sandbox/", import.meta.url));
 
@@ -38,6 +40,7 @@ const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 // Same rule as the engine: https, or plain http to loopback without a key.
 const { HELIUS_RPC_URL } = engineEnvSchema.pick({ HELIUS_RPC_URL: true }).parse(process.env);
+const STREAM_DIR = fileURLToPath(new URL("../test/fixtures/stream/", import.meta.url));
 
 const client = createRpcClient({
   url: HELIUS_RPC_URL,
@@ -299,6 +302,73 @@ async function recordComparison(name: string, force: boolean) {
   console.log(`Wrote ${outPath}\nrpc:   ${stringify(summary(rpcOutcome))}\nlocal: ${stringify(summary(localOutcome))}`);
 }
 
+/**
+ * Records real logsSubscribe frames for an address (until at least one failure and `MIN_NOTIFICATIONS`
+ * notifications arrive, or a time limit), then the RPC calls stream hydration makes: one
+ * getSignaturesForAddress page and getTransaction for one successful and one failed notified signature.
+ */
+async function recordStream(target: string, name: string, force: boolean) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
+  mkdirSync(STREAM_DIR, { recursive: true });
+  const path = `${STREAM_DIR}${name}.stream.json`;
+  if (existsSync(path) && !force) throw new Error(`${path} exists; pass --force to overwrite`);
+  const { HELIUS_WSS_URL } = engineEnvSchema.pick({ HELIUS_WSS_URL: true }).parse(process.env);
+  const MIN_NOTIFICATIONS = 12;
+  const MAX_NOTIFICATIONS = 60;
+  const TIME_LIMIT_MS = 120_000;
+
+  const frames: unknown[] = [];
+  const notifications: { signature: string; err: unknown }[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const socket = new WebSocket(HELIUS_WSS_URL);
+    let finished = false;
+    const done = () => {
+      finished = true;
+      clearTimeout(timer);
+      socket.terminate();
+      resolve();
+    };
+    const timer = setTimeout(done, TIME_LIMIT_MS);
+    // Never surface the socket error itself: its message can include the URL (and api key).
+    socket.on("error", () => {
+      finished = true;
+      clearTimeout(timer);
+      reject(new Error("The Helius WebSocket connection failed"));
+    });
+    socket.on("close", () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      reject(new Error("Helius closed the WebSocket before the recording finished"));
+    });
+    socket.on("open", () => {
+      socket.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "logsSubscribe", params: [{ mentions: [target] }, { commitment: "confirmed" }] }));
+    });
+    socket.on("message", (data) => {
+      if (finished) return; // frames arriving while closing would make the recording nondeterministic
+      const frame = parseRecordedJson(data.toString()) as { method?: string; params?: { result?: { value?: { signature?: string; err?: unknown } } } };
+      frames.push(frame);
+      const value = frame.method === "logsNotification" ? frame.params?.result?.value : undefined;
+      if (value?.signature) notifications.push({ signature: value.signature, err: value.err ?? null });
+      const failures = notifications.filter((n) => n.err !== null).length;
+      if ((notifications.length >= MIN_NOTIFICATIONS && failures > 0) || notifications.length >= MAX_NOTIFICATIONS) done();
+    });
+  });
+  const failed = notifications.find((n) => n.err !== null);
+  const succeeded = notifications.find((n) => n.err === null);
+  if (!failed || !succeeded) throw new Error(`Saw ${notifications.length} notifications but not both a success and a failure; try again`);
+
+  const records: RpcCallRecord[] = [];
+  const session = client.session({ record: records });
+  await session.rpc.getSignaturesForAddress(address(target), { limit: 20, commitment: "confirmed" }).send();
+  for (const n of [succeeded, failed]) await getTransaction(session, toSignature(n.signature));
+  await writeFile(
+    path,
+    `${stringify({ address: target, recordedAt: new Date().toISOString(), succeeded: succeeded.signature, failed: failed.signature, frames, rpc: records })}\n`,
+  );
+  console.log(`Wrote ${path}: ${frames.length} frames, ${notifications.length} notifications (credits used: ${session.credits()})`);
+}
+
 const [command, a, b, c] = process.argv.slice(2);
 if (command === "find" && a) {
   const cap = b === "--max-credits" ? z.coerce.number().int().positive().parse(c) : 300;
@@ -308,9 +378,10 @@ else if (command === "record-idl" && a && b) await recordIdl(a, b, c === "--forc
 else if (command === "simulate" && a) await recordSimulation(a, b === "--force");
 else if (command === "optimize" && a) await recordOptimization(a, b === "--force");
 else if (command === "compare" && a) await recordComparison(a, b === "--force");
+else if (command === "record-stream" && a && b) await recordStream(a, b, c === "--force");
 else {
   console.error(
-    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force] | simulate|optimize|compare <name> [--force]",
+    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force] | simulate|optimize|compare <name> [--force] | record-stream <address> <name> [--force]",
   );
   process.exit(1);
 }

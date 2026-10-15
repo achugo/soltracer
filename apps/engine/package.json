@@ -22,9 +22,11 @@
     "litesvm": "^1.6.0",
     "postgres": "^3.4.9",
     "tweetnacl": "^1.0.3",
+    "ws": "^8.22.0",
     "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "vitest": "^5.0.3"
