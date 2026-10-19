@@ -28,11 +28,16 @@ export const lookupTableCache = pgTable("lookup_table_cache", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-/** Anchor IDL error tables per program; `found = false` records that a program has no IDL. */
+/**
+ * Anchor IDLs per program: the error table, and the normalized IDL used to decode instructions and
+ * accounts (null when the IDL is too large or not in a format we decode). `found = false` records
+ * that a program has no IDL.
+ */
 export const idlCache = pgTable("idl_cache", {
   program: text("program").primaryKey(),
   found: boolean("found").notNull(),
   errors: jsonb("errors").$type<[number, string, string][]>(),
+  idl: jsonb("idl"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 

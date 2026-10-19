@@ -10,6 +10,9 @@ export const SANDBOX_FIXTURES = [
   "v1-transaction",
 ] as const;
 export type SandboxFixtureName = (typeof SANDBOX_FIXTURES)[number];
+/** Every recorded getTransaction (some have no simulator recording). */
+export const ON_CHAIN_FIXTURES = [...SANDBOX_FIXTURES, "jupiter-swap-fresh", "jupiter-usdc-input"] as const;
+export type OnChainFixtureName = (typeof ON_CHAIN_FIXTURES)[number];
 
 const tokenBalance = z.object({
   accountIndex: z.number(),
@@ -32,13 +35,21 @@ const resultSchema = z.object({
     postTokenBalances: z.array(tokenBalance),
     logMessages: z.array(z.string()),
     loadedAddresses: z.object({ writable: z.array(z.string()), readonly: z.array(z.string()) }).optional(),
+    innerInstructions: z
+      .array(
+        z.object({
+          index: z.number(),
+          instructions: z.array(z.object({ programIdIndex: z.number(), accounts: z.array(z.number()), data: z.string(), stackHeight: z.number() })),
+        }),
+      )
+      .optional(),
   }),
 });
 
 export type OnChainTx = z.infer<typeof resultSchema> & { signature: string };
 
 /** The on-chain truth recorded by scripts/fixtures.ts (getTransaction, base64). */
-export function loadOnChain(name: SandboxFixtureName): OnChainTx {
+export function loadOnChain(name: OnChainFixtureName): OnChainTx {
   const raw = JSON.parse(readFileSync(new URL(`../fixtures/sandbox/${name}.tx.json`, import.meta.url), "utf8")) as {
     signature: string;
     rpc: { response: { result: unknown } }[];

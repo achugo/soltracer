@@ -36,6 +36,8 @@ const sim: SimulationResult = {
   fallbackReason: null,
   perInstruction: [],
   overrides: [],
+  trace: { nodes: [], failingNodeId: null, complete: true },
+  accountDiffs: [],
   runId: null,
 };
 

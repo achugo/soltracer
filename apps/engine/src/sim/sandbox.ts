@@ -3,13 +3,13 @@ import type { SimulateRequest } from "@soltracer/shared/simulation";
 import type { SandboxCaches } from "../cache/types.ts";
 import type { RpcSession } from "../rpc/client.ts";
 import type { RunStore } from "../runs/run-store.ts";
-import type { SimulateOutcome, SimulatorLog } from "./common.ts";
+import type { IdlMode, SimulateOutcome, SimulatorLog } from "./common.ts";
 import { LocalLoadError, type ProgramCache } from "./local/loader.ts";
 import { simulateLocally } from "./local/local-simulator.ts";
 import { simulateWithRpc } from "./rpc-simulator.ts";
 
 /** At most this many local runs at once: each holds programs in memory and blocks while executing. */
-const MAX_CONCURRENT_LOCAL_RUNS = 2;
+export const MAX_CONCURRENT_LOCAL_RUNS = 2;
 let activeLocalRuns = 0;
 const waitingLocalRuns: (() => void)[] = [];
 
@@ -32,6 +32,10 @@ export interface SandboxDeps {
   programCache: ProgramCache;
   runs: RunStore;
   log?: SimulatorLog;
+  /** Read IDLs to decode traces ("fetch", production) or use only cached ones (default, tests). */
+  idlMode?: IdlMode;
+  /** Runs LiteSVM (the worker pool in production). */
+  localRunner?: Parameters<typeof simulateLocally>[6];
   /** Engines; injectable for tests. */
   engines?: { local: typeof simulateLocally; rpc: typeof simulateWithRpc };
 }
@@ -46,10 +50,12 @@ export async function runSandbox(request: SimulateRequest, wallet: string, deps:
   const { local, rpc } = deps.engines ?? { local: simulateLocally, rpc: simulateWithRpc };
   let outcome: SimulateOutcome;
   if (request.engine === "rpc") {
-    outcome = await rpc(request.tx, session, caches, log);
+    outcome = await rpc(request.tx, session, caches, log, deps.idlMode);
   } else {
     try {
-      outcome = await withLocalSlot(() => local(request.tx, request.overrides, session, caches, programCache, log));
+      outcome = await withLocalSlot(() =>
+        local(request.tx, request.overrides, session, caches, programCache, log, deps.localRunner, deps.idlMode),
+      );
     } catch (err) {
       if (!(err instanceof LocalLoadError)) throw err;
       if (request.overrides.length > 0) {
@@ -60,7 +66,7 @@ export async function runSandbox(request: SimulateRequest, wallet: string, deps:
         };
       }
       log?.info({ reason: err.message }, "local run fell back to rpc");
-      outcome = await rpc(request.tx, session, caches, log);
+      outcome = await rpc(request.tx, session, caches, log, deps.idlMode);
       if (outcome.ok) outcome = { ok: true, result: { ...outcome.result, fallbackReason: err.message } };
     }
   }

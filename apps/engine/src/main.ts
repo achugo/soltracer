@@ -5,7 +5,9 @@ import { createRateLimiter } from "./rpc/rate-limiter.ts";
 import { optimizeWithRpc, signatureStatus } from "./optimize/optimizer.ts";
 import { PgRunStore } from "./runs/run-store.ts";
 import { createProgramCache } from "./sim/local/loader.ts";
-import { runSandbox } from "./sim/sandbox.ts";
+import type { LocalRunInput, LocalRunOutput } from "./sim/local/runner.ts";
+import { createWorkerPool, LOCAL_RUNNER_WORKER } from "./sim/local/worker-pool.ts";
+import { MAX_CONCURRENT_LOCAL_RUNS, runSandbox } from "./sim/sandbox.ts";
 import { loadConfig } from "./config.ts";
 import { createDb } from "./db/client.ts";
 import { buildServer, ENGINE_HOST } from "./server.ts";
@@ -27,6 +29,12 @@ const nonceStore = new PgNonceStore(db);
 const caches = createPgCaches(db);
 const programCache = createProgramCache();
 const runs = new PgRunStore(db);
+// LiteSVM runs off the event loop; a run past 10 s is stopped and its worker replaced.
+const localPool = createWorkerPool<LocalRunInput, LocalRunOutput>({
+  size: MAX_CONCURRENT_LOCAL_RUNS,
+  timeoutMs: 10_000,
+  workerUrl: LOCAL_RUNNER_WORKER,
+});
 
 // The engine's only Helius client: 10 requests in any 1-second window, shared by every request.
 const rpc = createRpcClient({
@@ -43,7 +51,15 @@ const app = buildServer({
   nonceStore,
   logger: { level: "info", redact: ["req.headers.authorization"] },
   simulate: (request, wallet, log, signal) =>
-    runSandbox(request, wallet, { session: rpc.session({ signal }), caches, programCache, runs, log }),
+    runSandbox(request, wallet, {
+      session: rpc.session({ signal }),
+      caches,
+      programCache,
+      runs,
+      log,
+      localRunner: (input) => localPool.run(input),
+      idlMode: "fetch",
+    }),
   optimize: (input, log, signal) => optimizeWithRpc(input, rpc.session({ signal }), caches, log),
   txStatus: (signature, signal) => signatureStatus(rpc.session({ signal }), signature),
 });
@@ -57,6 +73,7 @@ async function shutdown(signal: string) {
   clearInterval(prune);
   try {
     await app.close();
+    await localPool.close();
     await close();
     process.exit(0);
   } catch (err) {

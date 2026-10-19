@@ -9,8 +9,10 @@ import { readComputeBudget } from "../../tx/compute-budget.ts";
 import { decodeTransactionInput } from "../../tx/decode.ts";
 import { LookupTableError, resolveAccounts } from "../../tx/lookup-tables.ts";
 import { instructionPrograms } from "../../tx/programs.ts";
+import { diffAccounts } from "../../trace/account-diff.ts";
+import { traceRun } from "../../trace/run-trace.ts";
+import { diffsWithoutInvalidDecoding } from "../../trace/schema-safe.ts";
 import {
-  decodeStatus,
   feeOnlyPostState,
   feeWasCharged,
   formatBalances,
@@ -18,13 +20,14 @@ import {
   loadDecimals,
   loadTables,
   toState,
+  type IdlMode,
   type SimulateOutcome,
   type SimulatorLog,
 } from "../common.ts";
 import { perInstructionUnits } from "../log-cu.ts";
 import { loadState, LocalLoadError, type ProgramCache } from "./loader.ts";
 import { applyOverrides, OverrideError } from "./overrides.ts";
-import { runLocal } from "./runner.ts";
+import { runLocal, type LocalRunInput, type LocalRunOutput } from "./runner.ts";
 
 /**
  * Runs a pasted transaction in LiteSVM against mainnet state loaded now, with optional overrides.
@@ -38,6 +41,10 @@ export async function simulateLocally(
   caches: SandboxCaches,
   programCache: ProgramCache,
   log?: SimulatorLog,
+  /** Where LiteSVM runs: the worker pool in production, in-thread by default (tests). */
+  run: (input: LocalRunInput) => Promise<LocalRunOutput> = async (input) => runLocal(input),
+  /** "fetch" reads IDLs for decoding (sandbox runs); "cached" uses only cached ones (replays). */
+  idlMode: IdlMode = "cached",
 ): Promise<SimulateOutcome> {
   const decoded = decodeTransactionInput(input);
   if (!decoded.ok) return { ok: false, status: 400, error: decoded.error };
@@ -62,10 +69,11 @@ export async function simulateLocally(
     throw err;
   }
 
-  let run;
+  let runOut;
   try {
-    run = runLocal({ wire: new Uint8Array(Buffer.from(tx.wireBase64, "base64")), accounts: installed, programs: state.programs, clock: state.clock });
+    runOut = await run({ wire: new Uint8Array(Buffer.from(tx.wireBase64, "base64")), accounts: installed, programs: state.programs, clock: state.clock });
   } catch (err) {
+    if (err instanceof LocalLoadError) throw err;
     throw new LocalLoadError(`LiteSVM could not run this transaction: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -76,9 +84,9 @@ export async function simulateLocally(
   // Deltas are measured from the state the run started from: mainnet plus the overrides.
   const writable = [...new Set(accounts.filter((a) => a.writable).map((a) => a.address as Address))];
   const preStates = writable.map((a) => toState(installed.get(a) ?? null));
-  const postStates: (AccountState | null)[] = run.err
-    ? feeOnlyPostState(writable, preStates, accounts[0]?.address as Address | undefined, feeWasCharged(run.err) ? totalFee : 0n)
-    : writable.map((a, i) => run.post.get(a) ?? preStates[i] ?? null);
+  const postStates: (AccountState | null)[] = runOut.err
+    ? feeOnlyPostState(writable, preStates, accounts[0]?.address as Address | undefined, feeWasCharged(runOut.err) ? totalFee : 0n)
+    : writable.map((a, i) => runOut.post.get(a) ?? preStates[i] ?? null);
   const changes = diffBalances(writable, preStates, postStates);
 
   // Mint decimals: from the loaded state when present, otherwise the cache or one read.
@@ -92,7 +100,16 @@ export async function simulateLocally(
   const decimals = new Map([...local, ...(missing.length > 0 ? await loadDecimals(session, caches, missing) : [])]);
 
   const programs = instructionPrograms(tx, accounts);
-  const status = await decodeStatus(run.err, run.logs, programs, session, caches);
+  const { status, trace, idls } = await traceRun({
+    err: runOut.err,
+    logs: runOut.logs,
+    tx,
+    accounts,
+    inner: runOut.inner,
+    session,
+    caches,
+    idlMode,
+  });
 
   const result: SimulationResult = {
     ok: true,
@@ -101,17 +118,19 @@ export async function simulateLocally(
     signed: tx.signed,
     accounts,
     computeBudget,
-    unitsConsumed: Number(run.unitsConsumed),
+    unitsConsumed: Number(runOut.unitsConsumed),
     status,
     fee: { baseLamports: baseFee.toString(), priorityLamports: priority.toString(), totalLamports: totalFee.toString() },
     balances: formatBalances(changes, decimals),
-    logs: run.logs,
+    logs: runOut.logs,
     slot: Number(state.clock.slot),
     credits: session.credits(),
     engine: "local",
     fallbackReason: null,
-    perInstruction: perInstructionUnits(run.logs, programs),
+    perInstruction: perInstructionUnits(runOut.logs, programs),
     overrides: [...overrides],
+    trace,
+    accountDiffs: diffsWithoutInvalidDecoding(diffAccounts(writable, preStates, postStates, (owner) => idls.get(owner) ?? null)),
     runId: null,
   };
   log?.info({ credits: result.credits, success: status.success, programs: state.programs.length }, "local simulation done");

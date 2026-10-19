@@ -1,10 +1,11 @@
 import type { ErrorResponse } from "@soltracer/shared/errors";
 import type { SimulationResult, TxError } from "@soltracer/shared/simulation";
 import { getBase64Encoder, type Address } from "@solana/kit";
-import type { SandboxCaches } from "../cache/types.ts";
+import type { IdlCacheEntry, SandboxCaches } from "../cache/types.ts";
 import { builtinCustomError, SYSTEM_PROGRAM } from "../decode/builtin-errors.ts";
 import { anchorIdlAddress } from "../decode/idl-address.ts";
-import { IdlParseError, parseIdlErrors } from "../decode/idl.ts";
+import { normalizeIdl, type NormalizedIdl } from "../decode/idl-full.ts";
+import { idlErrorsFromJson, inflateIdl } from "../decode/idl.ts";
 import { describeFailure, locateFailure } from "../decode/program-error.ts";
 import { parseMintDecimals, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from "../decode/token-account.ts";
 import type { AccountState, SolChange, TokenChange } from "../diff/balances.ts";
@@ -16,6 +17,28 @@ import { LookupTableError, parseLookupTable } from "../tx/lookup-tables.ts";
 /** Solana's fixed base fee per signature, used when getFeeForMessage cannot price the message. */
 export const LAMPORTS_PER_SIGNATURE = 5000n;
 const NO_IDL_PROGRAMS = new Set<Address>([SYSTEM_PROGRAM, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, COMPUTE_BUDGET_PROGRAM as Address]);
+
+/** Builtins, precompiles and native SPL programs: none publishes an Anchor IDL, so none is looked up. */
+const NON_ANCHOR_PROGRAMS = new Set<string>([
+  ...NO_IDL_PROGRAMS,
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",
+  "Vote111111111111111111111111111111111111111",
+  "Stake11111111111111111111111111111111111111",
+  "Config1111111111111111111111111111111111111",
+  "AddressLookupTab1e1111111111111111111111111",
+  "BPFLoader1111111111111111111111111111111111",
+  "BPFLoader2111111111111111111111111111111111",
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+  "LoaderV411111111111111111111111111111111111",
+  "Ed25519SigVerify111111111111111111111111111",
+  "KeccakSecp256k11111111111111111111111111111",
+  "Secp256r1SigVerify1111111111111111111111111",
+]);
+
+/** How a run gets IDLs to decode with: read uncached ones (one batched call), or use only what's cached. */
+export type IdlMode = "fetch" | "cached";
 
 export type SimulateOutcome = { ok: true; result: SimulationResult } | { ok: false; status: number; error: ErrorResponse };
 
@@ -87,24 +110,92 @@ export async function loadDecimals(session: RpcSession, caches: SandboxCaches, m
   return known;
 }
 
+/** Largest normalized IDL kept for decoding (as JSON text); larger ones keep only their errors. */
+export const MAX_STORED_IDL_CHARS = 1024 * 1024;
+
+/** A program's Anchor IDL, from cache or one account read (1 credit). */
+export async function loadIdl(session: RpcSession, caches: SandboxCaches, program: Address): Promise<IdlCacheEntry> {
+  const cached = await caches.idls.get(program);
+  if (cached) return cached;
+  const account = await session.rpc.getAccountInfo(await anchorIdlAddress(program), { encoding: "base64" }).send();
+  // The IDL account is created by the program and owned by it; anything else isn't its IDL.
+  const value = account.value?.owner === program ? account.value : null;
+  const entry = idlEntryFrom(value ? new Uint8Array(base64.encode(value.data[0])) : null);
+  await cacheIdl(caches, program, entry);
+  return entry;
+}
+
+/**
+ * Caching is an optimisation: a write that fails (say, text Postgres won't store) must not fail
+ * the run. The error is not logged: drizzle's message carries the query parameters (the whole IDL).
+ */
+async function cacheIdl(caches: SandboxCaches, program: Address, entry: IdlCacheEntry): Promise<void> {
+  try {
+    await caches.idls.put(program, entry);
+  } catch {
+    // The entry is still used for this run.
+  }
+}
+
+/**
+ * A cache entry from an IDL account's data (null: no account). The data is the program author's, so
+ * any failure to read it (not only IdlParseError: a hostile IDL can exhaust string or stack limits)
+ * counts as no IDL rather than failing the run.
+ */
+function idlEntryFrom(data: Uint8Array | null): IdlCacheEntry {
+  if (!data) return { found: false };
+  try {
+    const json = inflateIdl(data);
+    return { found: true, errors: idlErrorsFromJson(json), idl: decodingIdl(json) };
+  } catch {
+    return { found: false };
+  }
+}
+
+/**
+ * IDLs to decode a run's instructions and accounts with, for the programs it touched. In "fetch"
+ * mode the uncached ones are read in one batched call (1 credit) and cached, absent or not.
+ */
+export async function loadDecodingIdls(
+  session: RpcSession,
+  caches: SandboxCaches,
+  programs: readonly string[],
+  mode: IdlMode,
+): Promise<Map<string, NormalizedIdl>> {
+  const idls = new Map<string, NormalizedIdl>();
+  const missing: Address[] = [];
+  for (const program of new Set(programs)) {
+    if (NON_ANCHOR_PROGRAMS.has(program)) continue;
+    const cached = await caches.idls.get(program as Address);
+    if (cached?.found && cached.idl) idls.set(program, cached.idl);
+    else if (!cached) missing.push(program as Address);
+  }
+  if (mode === "cached" || missing.length === 0) return idls;
+  const addresses = await Promise.all(missing.map((p) => anchorIdlAddress(p)));
+  const { accounts } = await getMultipleAccountsBatched(session.rpc, addresses);
+  for (const [i, program] of missing.entries()) {
+    const account = accounts[i];
+    const entry = idlEntryFrom(account?.owner === program ? account.data : null);
+    await cacheIdl(caches, program, entry);
+    if (entry.found && entry.idl) idls.set(program, entry.idl);
+  }
+  return idls;
+}
+
+/** The IDL's decoding half; null (errors only) when it isn't an IDL we decode or is too large to keep. */
+function decodingIdl(json: unknown): NormalizedIdl | null {
+  try {
+    const idl = normalizeIdl(json);
+    return JSON.stringify(idl).length <= MAX_STORED_IDL_CHARS ? idl : null;
+  } catch {
+    return null; // see idlEntryFrom: never let the author's data fail the run
+  }
+}
+
 /** IDL error table for a program that raised a custom error, from cache or one account read. */
 export async function loadIdlErrors(session: RpcSession, caches: SandboxCaches, program: Address) {
-  const cached = await caches.idls.get(program);
-  if (cached) return cached.found ? cached.errors : null;
-  const account = await session.rpc.getAccountInfo(await anchorIdlAddress(program), { encoding: "base64" }).send();
-  if (!account.value) {
-    await caches.idls.put(program, { found: false });
-    return null;
-  }
-  try {
-    const errors = parseIdlErrors(new Uint8Array(base64.encode(account.value.data[0])));
-    await caches.idls.put(program, { found: true, errors });
-    return errors;
-  } catch (err) {
-    if (!(err instanceof IdlParseError)) throw err;
-    await caches.idls.put(program, { found: false });
-    return null;
-  }
+  const entry = await loadIdl(session, caches, program);
+  return entry.found ? entry.errors : null;
 }
 
 

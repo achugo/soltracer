@@ -69,8 +69,11 @@ function indexAccounts(r: RpcCallRecord) {
 function composeAccountRead(method: string, params: unknown): unknown {
   if (method !== "getMultipleAccounts" || !Array.isArray(params) || !Array.isArray(params[0])) return undefined;
   const addresses = params[0] as string[];
-  const hits = addresses.map((a) => accountsByAddress.get(a));
+  // Decoding reads the IDLs of a run's programs in one batch; unrecorded ones have no IDL account.
+  const idlRead = addresses.some((a) => idlAddresses.has(a));
+  const hits = addresses.map((a) => accountsByAddress.get(a) ?? (idlAddresses.has(a) ? { value: null, slot: 0n } : undefined));
   if (hits.some((h) => h === undefined)) return undefined;
+  if (idlRead) idlBatchReads += 1;
   console.warn(`fake-rpc: composed getMultipleAccounts for ${addresses.length} accounts`);
   const slot = hits.reduce((max, h) => (h && h.slot > max ? h.slot : max), 0n);
   return { jsonrpc: "2.0", result: { context: { slot }, value: hits.map((h) => h?.value ?? null) } };
@@ -114,6 +117,8 @@ for (const [address, entry] of accountsByAddress) {
 
 /** How many IDL lookups were answered "no account"; e2e asserts successful runs cause none. */
 let idlMisses = 0;
+/** How many batched IDL reads (for decoding traces) were answered; e2e asserts repeat runs cause none. */
+let idlBatchReads = 0;
 
 function missingIdl(method: string, params: unknown): unknown {
   if (method !== "getAccountInfo" || !Array.isArray(params) || typeof params[0] !== "string") return undefined;
@@ -125,7 +130,7 @@ function missingIdl(method: string, params: unknown): unknown {
 
 const server = createServer((req, res) => {
   if (req.method === "GET" && req.url === "/__stats") {
-    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ idlMisses }));
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ idlMisses, idlBatchReads }));
     return;
   }
   let body = "";

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { pubkeySchema } from "./solana.ts";
 
-/** u64 values travel as decimal strings: they can exceed Number.MAX_SAFE_INTEGER. */
-export const u64Schema = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
+export { txErrorSchema, u64Schema } from "./tx-error.ts";
+import { txErrorSchema, u64Schema } from "./tx-error.ts";
+import { accountDiffSchema, MAX_ACCOUNT_DIFFS, traceSchema } from "./trace.ts";
 
 /** Largest serialized legacy or v0 transaction the network accepts. */
 export const MAX_TX_BYTES = 1232;
@@ -83,20 +84,6 @@ export const computeBudgetSchema = z.object({
   loadedAccountsDataSizeLimit: z.number().int().min(0).nullable(),
 });
 
-export const txErrorSchema = z.object({
-  /** Top-level instruction that failed, when the error names one. */
-  instructionIndex: z.number().int().min(0).nullable(),
-  /** Program of that top-level instruction. */
-  programId: pubkeySchema.nullable(),
-  /** Program that actually raised the error, from the logs (may be a CPI callee). */
-  failingProgramId: pubkeySchema.nullable(),
-  code: z.number().int().nullable(),
-  name: z.string().nullable(),
-  message: z.string(),
-  source: z.enum(["idl", "builtin", "raw"]),
-  raw: z.unknown(),
-});
-
 export const feeSchema = z.object({
   baseLamports: u64,
   priorityLamports: u64,
@@ -154,6 +141,10 @@ export const simulationResultSchema = z.object({
     }),
   ),
   overrides: z.array(overrideSchema),
+  /** The CPI tree: where the run spent CU and where it failed. */
+  trace: traceSchema,
+  /** Accounts the run created, closed or changed, decoded where a layout or IDL is known. */
+  accountDiffs: z.array(accountDiffSchema).max(MAX_ACCOUNT_DIFFS),
   /** Stored run id; null for internal runs (e.g. the optimizer's checks) that are not stored. */
   runId: z.uuidv4().nullable(),
 }).superRefine((r, ctx) => {
