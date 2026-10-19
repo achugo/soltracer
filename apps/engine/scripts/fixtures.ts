@@ -9,11 +9,17 @@
  *   tsx scripts/fixtures.ts optimize <fixture-name> [--force]   (runs the optimizer at p75, records its calls)
  *   tsx scripts/fixtures.ts compare <fixture-name> [--force]    (rpc then local, back to back; big data -> blobs/)
  *   tsx scripts/fixtures.ts record-stream <address> <name> [--force] (logsSubscribe frames, then the RPC calls hydration makes)
+ *   tsx scripts/fixtures.ts fetch-third-party                  (fills the local cache of third-party binaries and IDLs)
+ *
+ * Third-party program binaries and Anchor IDLs are never written into committed recordings: they go to
+ * test/fixtures/third-party/ (gitignored) and recordings refer to them by content hash.
  *
  * kinds: jupiter-alt-success | jupiter-slippage-6001 | jupiter-usdc-input | sol-transfer | token-2022-transfer | v1-transaction
  */
-import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { address, signature as toSignature, type Signature } from "@solana/kit";
 import { engineEnvSchema } from "@soltracer/shared";
@@ -25,7 +31,7 @@ import { decodeTransactionInput } from "../src/tx/decode.ts";
 import { simulateWithRpc } from "../src/sim/rpc-simulator.ts";
 import { createProgramCache } from "../src/sim/local/loader.ts";
 import { simulateLocally } from "../src/sim/local/local-simulator.ts";
-import { externalizeBlobs, parseRecordedJson } from "../src/rpc/replay.ts";
+import { externalizeBlobs, externalizeThirdParty, missingBlobs, parseRecordedJson } from "../src/rpc/replay.ts";
 import { mkdirSync } from "node:fs";
 import { createRpcClient, type RpcCallRecord, type RpcSession } from "../src/rpc/client.ts";
 import { createRateLimiter } from "../src/rpc/rate-limiter.ts";
@@ -41,6 +47,10 @@ const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 // Same rule as the engine: https, or plain http to loopback without a key.
 const { HELIUS_RPC_URL } = engineEnvSchema.pick({ HELIUS_RPC_URL: true }).parse(process.env);
 const STREAM_DIR = fileURLToPath(new URL("../test/fixtures/stream/", import.meta.url));
+const THIRD_PARTY_DIR = fileURLToPath(new URL("../test/fixtures/third-party", import.meta.url));
+mkdirSync(THIRD_PARTY_DIR, { recursive: true });
+/** Program binaries and IDLs move out to the local cache before a recording is written. */
+const withoutThirdParty = <T>(body: T): T => externalizeThirdParty(body, THIRD_PARTY_DIR) as T;
 
 const client = createRpcClient({
   url: HELIUS_RPC_URL,
@@ -210,7 +220,8 @@ async function record(sig: string, name: string, force: boolean) {
 /** Records the getAccountInfo exchange for a program's on-chain Anchor IDL account. */
 async function recordIdl(program: string, name: string, force: boolean) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
-  const path = fileURLToPath(new URL(`../test/fixtures/idl/${name}.idl.json`, import.meta.url));
+  // A third-party IDL: kept in the local cache, never committed.
+  const path = `${THIRD_PARTY_DIR}/${name}.idl.json`;
   if (existsSync(path) && !force) throw new Error(`${path} exists; pass --force to overwrite`);
   const idlAddress = await anchorIdlAddress(address(program));
   const records: RpcCallRecord[] = [];
@@ -236,7 +247,7 @@ async function recordSimulation(name: string, force: boolean) {
   const records: RpcCallRecord[] = [];
   const session = client.session({ record: records });
   const outcome = await simulateWithRpc(wire, session, createMemoryCaches());
-  await writeFile(outPath, `${stringify({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: records })}\n`);
+  await writeFile(outPath, `${stringify(withoutThirdParty({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: records }))}\n`);
   const summary = outcome.ok
     ? { status: outcome.result.status, unitsConsumed: outcome.result.unitsConsumed, credits: outcome.result.credits }
     : outcome.error;
@@ -258,7 +269,7 @@ async function recordOptimization(name: string, force: boolean) {
   const records: RpcCallRecord[] = [];
   const session = client.session({ record: records });
   const outcome = await optimizeWithRpc({ tx: wire, preset: "p75" }, session, createMemoryCaches());
-  await writeFile(outPath, `${stringify({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: records })}\n`);
+  await writeFile(outPath, `${stringify(withoutThirdParty({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: records }))}\n`);
   const summary = outcome.ok
     ? {
         limit: outcome.result.computeUnitLimit,
@@ -295,7 +306,11 @@ async function recordComparison(name: string, force: boolean) {
   const localOutcome = await simulateLocally(wire, [], localSession, createMemoryCaches(), createProgramCache());
 
   mkdirSync(BLOB_DIR, { recursive: true });
-  const body = externalizeBlobs({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: rpcRecords, local: localRecords }, BLOB_DIR);
+  // Program binaries and IDLs go to the local cache; other large account data (chain state) stays committed as blobs.
+  const body = externalizeBlobs(
+    withoutThirdParty({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: rpcRecords, local: localRecords }),
+    BLOB_DIR,
+  );
   await writeFile(outPath, `${stringify(body)}\n`);
   const summary = (o: typeof rpcOutcome) =>
     o.ok ? { status: o.result.status.success ? "success" : o.result.status.error.name ?? o.result.status.error.code, cu: o.result.unitsConsumed, credits: o.result.credits } : o.error.code;
@@ -369,6 +384,81 @@ async function recordStream(target: string, name: string, force: boolean) {
   console.log(`Wrote ${path}: ${frames.length} frames, ${notifications.length} notifications (credits used: ${session.credits()})`);
 }
 
+/** Every account address whose recorded data is a blob reference, by hash (from the calls' params). */
+function blobAddresses(calls: readonly RpcCallRecord[]): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const call of calls) {
+    const params = call.params as unknown[] | undefined;
+    const result = (call.response as { result?: { value?: unknown } }).result;
+    const value = result?.value as unknown;
+    const addresses: unknown[] =
+      call.method === "getMultipleAccounts" ? ((params?.[0] as unknown[]) ?? [])
+      : call.method === "getAccountInfo" ? [params?.[0]]
+      : call.method === "simulateTransaction" ? ((params?.[1] as { accounts?: { addresses?: unknown[] } })?.accounts?.addresses ?? [])
+      : [];
+    const accounts =
+      call.method === "simulateTransaction" ? ((value as { accounts?: unknown[] } | undefined)?.accounts ?? []) : Array.isArray(value) ? value : [value];
+    accounts.forEach((account, i) => {
+      const data = (account as { data?: unknown[] } | null)?.data?.[0];
+      const address = addresses[i];
+      if (typeof data === "string" && data.startsWith("@blob:") && typeof address === "string") found.set(data.slice(6), address);
+    });
+  }
+  return found;
+}
+
+/**
+ * Fills the local cache of third-party material the committed recordings refer to: re-reads each
+ * account from mainnet and keeps it only if it still matches the recorded content hash. A program
+ * upgraded since recording can't be restored; re-record that fixture (compare/simulate/optimize).
+ */
+async function fetchThirdParty() {
+  const dirs = [BLOB_DIR, THIRD_PARTY_DIR];
+  const wanted = new Map<string, string>();
+  const referenced = new Map<string, string>();
+  for (const file of (await readdir(FIXTURE_DIR)).filter((f) => /\.(cmp|sim|opt)\.json$/.test(f))) {
+    const text = await readFile(`${FIXTURE_DIR}${file}`, "utf8");
+    const missing = new Set(missingBlobs(text, dirs));
+    const recording = parseRecordedJson(text) as { rpc?: RpcCallRecord[]; local?: RpcCallRecord[] };
+    for (const [hash, address] of blobAddresses([...(recording.rpc ?? []), ...(recording.local ?? [])])) {
+      referenced.set(hash, address);
+      if (missing.has(hash)) wanted.set(hash, address);
+    }
+  }
+  const session = client.session();
+  const stale: string[] = [];
+  const entries = [...wanted];
+  for (let i = 0; i < entries.length; i += 100) {
+    const batch = entries.slice(i, i + 100);
+    const { value } = await session.rpc.getMultipleAccounts(batch.map(([, a]) => address(a)), { encoding: "base64", commitment: "confirmed" }).send();
+    batch.forEach(([hash, account], j) => {
+      const data = value[j]?.data[0];
+      if (data && createHash("sha256").update(data).digest("hex") === hash) {
+        writeFileSync(`${THIRD_PARTY_DIR}/${hash}.b64.gz`, gzipSync(data, { level: 9 }));
+      } else {
+        stale.push(account);
+      }
+    });
+  }
+  // The standalone IDL fixture must be the same IDL the recordings used: tests assert its exact contents.
+  const idlPath = `${THIRD_PARTY_DIR}/jupiter-v6.idl.json`;
+  if (!existsSync(idlPath)) {
+    const idlAddress = await anchorIdlAddress(address(JUPITER_V6));
+    const expected = [...referenced].find(([, a]) => a === idlAddress)?.[0];
+    await recordIdl(JUPITER_V6, "jupiter-v6", false);
+    const recorded = JSON.parse(await readFile(idlPath, "utf8")) as { rpc: { response: { result: { value: { data: [string] } } } }[] };
+    const data = recorded.rpc[0]?.response.result.value.data[0] ?? "";
+    if (createHash("sha256").update(data).digest("hex") !== expected) {
+      rmSync(idlPath);
+      stale.push(idlAddress);
+    }
+  }
+  console.log(`Restored ${wanted.size - stale.length} of ${wanted.size} cached accounts (credits used: ${session.credits()}).`);
+  if (stale.length > 0) {
+    console.log(`Changed on-chain since recording (re-record the fixtures that use them): ${stale.join(", ")}`);
+  }
+}
+
 const [command, a, b, c] = process.argv.slice(2);
 if (command === "find" && a) {
   const cap = b === "--max-credits" ? z.coerce.number().int().positive().parse(c) : 300;
@@ -379,9 +469,10 @@ else if (command === "simulate" && a) await recordSimulation(a, b === "--force")
 else if (command === "optimize" && a) await recordOptimization(a, b === "--force");
 else if (command === "compare" && a) await recordComparison(a, b === "--force");
 else if (command === "record-stream" && a && b) await recordStream(a, b, c === "--force");
+else if (command === "fetch-third-party") await fetchThirdParty();
 else {
   console.error(
-    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force] | simulate|optimize|compare <name> [--force] | record-stream <address> <name> [--force]",
+    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force] | simulate|optimize|compare <name> [--force] | record-stream <address> <name> [--force] | fetch-third-party",
   );
   process.exit(1);
 }

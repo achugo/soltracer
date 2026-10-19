@@ -12,6 +12,7 @@ import { createRateLimiter } from "../../../src/rpc/rate-limiter.ts";
 import type { Address } from "@solana/kit";
 import { createMemoryCaches } from "../../../src/cache/memory.ts";
 import { loadTables } from "../../../src/sim/common.ts";
+import { comparisonAvailable } from "../../helpers/third-party.ts";
 
 const worker = (name: string) => new URL(`../../fixtures/workers/${name}.mjs`, import.meta.url);
 
@@ -118,14 +119,14 @@ describe("hostile runs can't take the runner down (audit L1)", () => {
 });
 
 describe("LiteSVM in a worker", () => {
-  it("gives exactly the same result as running in-thread (Jupiter swap)", async () => {
-    const rec = loadComparison("jupiter-swap-fresh");
+  it.skipIf(!comparisonAvailable("jupiter-swap-fresh", "local"))("gives exactly the same result as running in-thread (Jupiter swap)", async () => {
+    const rec = loadComparison("jupiter-swap-fresh", "local");
     const decoded = decodeTransactionInput(rec.input);
     if (!decoded.ok) throw new Error(decoded.error.message);
     const session = createRpcClient({
       url: "https://replay.invalid",
       limiter: createRateLimiter({ limit: 1000, windowMs: 1000 }),
-      transport: createReplayTransport(rec.local),
+      transport: createReplayTransport(rec.calls),
       log: { info: () => undefined, warn: () => undefined },
     }).session();
     // The same loading sequence as simulateLocally.

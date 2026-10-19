@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import bs58 from "bs58";
 import { signIn } from "./sign-in-helper.ts";
+import { recordingsAvailable, THIRD_PARTY_SKIP_REASON } from "./third-party.ts";
 
 /** The recorded mainnet transaction (base64) for an engine sandbox fixture. */
 function fixtureTx(name: string): string {
@@ -42,6 +43,8 @@ test("a Jupiter swap with lookup tables lists every resolved account (RPC engine
 });
 
 test("a failed swap shows the decoded slippage error from the program's IDL", async ({ page }) => {
+  // Runs locally by default (Jupiter and DEX binaries), then decodes with Jupiter's IDL.
+  test.skip(!recordingsAvailable("jupiter-slippage-6001.sim.json", "jupiter-slippage-6001.cmp.json"), THIRD_PARTY_SKIP_REASON);
   await simulate(page, fixtureTx("jupiter-slippage-6001"));
   const status = page.getByRole("region", { name: "Status" });
   await expect(status).toContainText("Failed");

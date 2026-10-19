@@ -2,8 +2,12 @@ import type { Override, SimulationResult } from "@soltracer/shared/simulation";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRateLimiter } from "../../../src/rpc/rate-limiter.ts";
 import { COMPARISON_FIXTURES, replayEngine, type ComparisonName } from "../../helpers/replay.ts";
+import { comparisonAvailable } from "../../helpers/third-party.ts";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+/** Both sides of a comparison recording can be replayed here (third-party binaries are in the local cache). */
+const replayable = (...names: ComparisonName[]) => names.every((n) => comparisonAvailable(n, "rpc") && comparisonAvailable(n, "local"));
 
 async function run(name: ComparisonName, engine: "rpc" | "local", overrides?: Override[]) {
   const { outcome, unused } = await replayEngine(name, engine, { overrides, unrecordedAccountsMissing: overrides !== undefined });
@@ -47,15 +51,17 @@ function expectClose(local: Record<string, string>, rpc: Record<string, string>)
 const HOT_ACCOUNT_FIXTURES = new Set<ComparisonName>(["v1-transaction"]);
 
 describe("local (LiteSVM) agrees with rpc simulateTransaction", () => {
-  it.each(COMPARISON_FIXTURES.filter((n) => !HOT_ACCOUNT_FIXTURES.has(n) && !MOVING_POOL_FIXTURES.has(n)))("%s: same outcome, error and balance deltas", async (name) => {
-    const rpc = await run(name, "rpc");
-    const local = await run(name, "local");
-    expect(local.engine).toBe("local");
-    expect(comparable(local)).toEqual(comparable(rpc));
-    expect(local.credits).toBeLessThanOrEqual(rpc.credits);
-  });
+  for (const name of COMPARISON_FIXTURES.filter((n) => !HOT_ACCOUNT_FIXTURES.has(n) && !MOVING_POOL_FIXTURES.has(n))) {
+    it.skipIf(!replayable(name))(`${name}: same outcome, error and balance deltas`, async () => {
+      const rpc = await run(name, "rpc");
+      const local = await run(name, "local");
+      expect(local.engine).toBe("local");
+      expect(comparable(local)).toEqual(comparable(rpc));
+      expect(local.credits).toBeLessThanOrEqual(rpc.credits);
+    });
+  }
 
-  it("USDC swap on a live pool: same outcome, same accounts and direction, amounts within 1%", async () => {
+  it.skipIf(!replayable("jupiter-usdc-input"))("USDC swap on a live pool: same outcome, same accounts and direction, amounts within 1%", async () => {
     const rpcResult = await run("jupiter-usdc-input", "rpc");
     const rpc = comparable(rpcResult);
     const local = comparable(await run("jupiter-usdc-input", "local"));
@@ -70,7 +76,7 @@ describe("local (LiteSVM) agrees with rpc simulateTransaction", () => {
     expectClose(scoped(local.sol), scoped(rpc.sol));
   });
 
-  it("v1 (hot accounts): same outcome and error; locally the payer pays exactly the fee", async () => {
+  it.skipIf(!replayable("v1-transaction"))("v1 (hot accounts): same outcome and error; locally the payer pays exactly the fee", async () => {
     const rpc = await run("v1-transaction", "rpc");
     const local = await run("v1-transaction", "local");
     expect(comparable(local).success).toBe(comparable(rpc).success);
@@ -85,7 +91,7 @@ describe("local (LiteSVM) agrees with rpc simulateTransaction", () => {
     }
   });
 
-  it("captures full logs and per-instruction CU locally", async () => {
+  it.skipIf(!replayable("jupiter-swap-fresh"))("captures full logs and per-instruction CU locally", async () => {
     const local = await run("jupiter-swap-fresh", "local");
     expect(local.logs.some((l) => l.includes("Program log: Instruction: Route") || l.includes("invoke [1]"))).toBe(true);
     const jupiter = local.perInstruction.find((p) => p.programId === "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
@@ -94,7 +100,7 @@ describe("local (LiteSVM) agrees with rpc simulateTransaction", () => {
 });
 
 describe("overrides", () => {
-  it("turns the USDC swap into a failure at 0 USDC and back into a success with enough USDC", async () => {
+  it.skipIf(!replayable("jupiter-usdc-input"))("turns the USDC swap into a failure at 0 USDC and back into a success with enough USDC", async () => {
     const base = await run("jupiter-usdc-input", "local");
     expect(base.status.success).toBe(true);
     const payer = base.accounts[0]?.address ?? "";
@@ -111,13 +117,15 @@ describe("overrides", () => {
 describe("rate limit", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("cold local runs of every fixture at once never exceed 10 RPC calls in any 1 s window", async () => {
+  // Every fixture whose local side can be replayed here (all of them when the third-party cache is present).
+  const local = COMPARISON_FIXTURES.filter((n) => comparisonAvailable(n, "local"));
+  it.skipIf(local.length === 0)("cold local runs of every fixture at once never exceed 10 RPC calls in any 1 s window", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "Date", "performance"] });
     const limiter = createRateLimiter({ limit: 10, windowMs: 1000, maxQueue: 100 });
     const times: number[] = [];
     let settled = false;
     const runs = Promise.all(
-      COMPARISON_FIXTURES.map((name) => replayEngine(name, "local", { limiter, onCall: () => times.push(Date.now()) })),
+      local.map((name) => replayEngine(name, "local", { limiter, onCall: () => times.push(Date.now()) })),
     ).finally(() => (settled = true));
     // Keep the fake clock moving until every run has drained through the limiter.
     for (let i = 0; i < 200 && !settled; i++) await vi.advanceTimersByTimeAsync(100);

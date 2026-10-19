@@ -3,6 +3,7 @@ import type { TraceNode } from "@soltracer/shared/trace";
 import { describe, expect, it } from "vitest";
 import { failedInstructionOf } from "../../src/trace/run-trace.ts";
 import { COMPARISON_FIXTURES, replayEngine } from "../helpers/replay.ts";
+import { comparisonAvailable } from "../helpers/third-party.ts";
 
 const JUP = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
 const WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
@@ -21,7 +22,7 @@ function node(result: SimulationResult, id: number | null): TraceNode {
 }
 
 describe("trace acceptance: the failed multi-hop Jupiter swap (jupiter-slippage-6001)", () => {
-  it("local: shows the failing node, its program, the decoded error, the CU split and every hop's data", async () => {
+  it.skipIf(!comparisonAvailable("jupiter-slippage-6001", "local"))("local: shows the failing node, its program, the decoded error, the CU split and every hop's data", async () => {
     const result = await run("jupiter-slippage-6001", "local");
     const failing = node(result, result.trace.failingNodeId);
     expect(failing.programId).toBe(JUP);
@@ -48,7 +49,7 @@ describe("trace acceptance: the failed multi-hop Jupiter swap (jupiter-slippage-
     expect(after.every((n) => n.status === "not-run")).toBe(true);
   });
 
-  it("rpc: the same failing node and error; only top-level instructions carry data", async () => {
+  it.skipIf(!comparisonAvailable("jupiter-slippage-6001", "rpc"))("rpc: the same failing node and error; only top-level instructions carry data", async () => {
     const result = await run("jupiter-slippage-6001", "rpc");
     const failing = node(result, result.trace.failingNodeId);
     expect(failing).toMatchObject({ programId: JUP, error: { code: 6001, name: "SlippageToleranceExceeded" } });
@@ -60,25 +61,29 @@ describe("trace acceptance: the failed multi-hop Jupiter swap (jupiter-slippage-
 });
 
 describe("every recorded transaction gets a trace and account diffs", () => {
-  it.each(COMPARISON_FIXTURES)("%s (local): CPI data is matched for every instruction, diffs cover the balance changes", async (name) => {
-    const result = await run(name, "local");
-    expect(result.trace.complete).toBe(true);
-    const topLevel = result.trace.nodes.filter((n) => n.parent === null);
-    expect(topLevel).toHaveLength(result.perInstruction.length);
-    for (const n of result.trace.nodes.filter((x) => x.status !== "not-run")) expect(n.instruction, `${name} node ${n.id}`).not.toBeNull();
+  for (const name of COMPARISON_FIXTURES) {
+    it.skipIf(!comparisonAvailable(name, "local"))(`${name} (local): CPI data is matched for every instruction, diffs cover the balance changes`, async () => {
+      const result = await run(name, "local");
+      expect(result.trace.complete).toBe(true);
+      const topLevel = result.trace.nodes.filter((n) => n.parent === null);
+      expect(topLevel).toHaveLength(result.perInstruction.length);
+      for (const n of result.trace.nodes.filter((x) => x.status !== "not-run")) expect(n.instruction, `${name} node ${n.id}`).not.toBeNull();
 
-    const changed = new Set(result.accountDiffs.map((d) => d.address));
-    for (const s of result.balances.sol) expect(changed.has(s.address), `${name} ${s.address}`).toBe(true);
-    for (const t of result.balances.tokens) expect(changed.has(t.account), `${name} ${t.account}`).toBe(true);
-  });
+      const changed = new Set(result.accountDiffs.map((d) => d.address));
+      for (const s of result.balances.sol) expect(changed.has(s.address), `${name} ${s.address}`).toBe(true);
+      for (const t of result.balances.tokens) expect(changed.has(t.account), `${name} ${t.account}`).toBe(true);
+    });
+  }
 
-  it.each(COMPARISON_FIXTURES)("%s (rpc): the tree agrees with the local one", async (name) => {
-    const [rpc, local] = await Promise.all([run(name, "rpc"), run(name, "local")]);
-    const shape = (r: SimulationResult) => r.trace.nodes.map((n) => [n.depth, n.programId, n.status]);
-    // Account state can move between the back-to-back recordings, but which instructions ran and how they ended doesn't.
-    expect(shape(rpc).filter(([d]) => d === 1)).toEqual(shape(local).filter(([d]) => d === 1));
-    expect(rpc.trace.complete).toBe(true);
-  });
+  for (const name of COMPARISON_FIXTURES) {
+    it.skipIf(!comparisonAvailable(name, "rpc") || !comparisonAvailable(name, "local"))(`${name} (rpc): the tree agrees with the local one`, async () => {
+      const [rpc, local] = await Promise.all([run(name, "rpc"), run(name, "local")]);
+      const shape = (r: SimulationResult) => r.trace.nodes.map((n) => [n.depth, n.programId, n.status]);
+      // Account state can move between the back-to-back recordings, but which instructions ran and how they ended doesn't.
+      expect(shape(rpc).filter(([d]) => d === 1)).toEqual(shape(local).filter(([d]) => d === 1));
+      expect(rpc.trace.complete).toBe(true);
+    });
+  }
 });
 
 describe("failedInstructionOf", () => {

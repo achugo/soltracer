@@ -7,7 +7,7 @@ Private Solana transaction debugger for one user. It simulates transactions in a
 - `docs/build-prompt.md`: stack, architecture, global rules, Phases 0–6 with acceptance criteria.
 - `docs/live-trace-view.md`: the live trace view, Steps 1–10 with exact commits. It replaces the trace viewer in Phase 4.
 - Before starting a phase or step, read its section in full. If these docs and this file disagree, the docs win; tell me about the conflict.
-- **Current work:** Phase 4 engine half (trace, IDL decoding, account diffs) built on `feat/phase-4-trace-engine` (branched from `feat/phase-3-local-svm`), awaiting review. The trace UI waits for `docs/live-trace-view.md`. Next: that doc's steps, or Phase 5 (update this line when a phase or step is done).
+- **Current work:** Phase 5 in progress on `feat/phase-5-streamer` (commits 1–4 of 10 done: fixtures, schemas, database, hydration). Phase 4's trace UI waits for `docs/live-trace-view.md`. Next: Phase 5 commit 5, the Helius socket with reconnect and gap fill (update this line when a phase or step is done).
 
 ## Hard constraints
 
@@ -36,8 +36,8 @@ Node 22 (`.nvmrc`), pnpm 12 via corepack. Copy `.env.example` to `.env` at the r
 - `pnpm typecheck` / `pnpm lint` / `pnpm test`: engine tests need Postgres running (they use `soltracer_test`)
 - `pnpm e2e`: Playwright; starts its own engine (4100) and web (3100) with dummy env. First time: `pnpm --filter @soltracer/web exec playwright install chromium`
 - `pnpm check:bundle`: builds web and fails if any secret value is in browser-facing output
-- `pnpm --filter @soltracer/engine fixtures …`: find/record mainnet fixtures with your Helius key (spends credits; never run from tests). `find <kind>`, `record <sig> <name>`, `record-idl <program> <name>`, `simulate <name>` / `optimize <name>` (record the simulator's / optimizer's RPC calls for replay), `compare <name>` (rpc then local back to back; program binaries go to `test/fixtures/blobs/` as content-addressed gzip)
-- e2e runs the engine against `apps/engine/scripts/fake-rpc.ts`, which replays `test/fixtures/sandbox/*.cmp.json`, `*.opt.json` and `*.sim.json`; it never calls Helius
+- `pnpm --filter @soltracer/engine fixtures …`: find/record mainnet fixtures with your Helius key (spends credits; never run from tests). `find <kind>`, `record <sig> <name>`, `record-idl <program> <name>`, `simulate <name>` / `optimize <name>` (record the simulator's / optimizer's RPC calls for replay), `compare <name>` (rpc then local back to back), `fetch-third-party` (refill the local cache). Third-party program binaries and Anchor IDLs never go into committed recordings: they go to the gitignored `test/fixtures/third-party/` and recordings refer to them by content hash (`@blob:`). Only the four SPL binaries in `test/fixtures/blobs/` are committed (see THIRD_PARTY_NOTICES.md). Tests needing the cache skip with a reason when it's absent
+- e2e runs the engine against `apps/engine/scripts/fake-rpc.ts`, which replays `test/fixtures/sandbox/*.cmp.json`, `*.opt.json` and `*.sim.json` (skipping any whose third-party material isn't in the local cache); it never calls Helius
 
 ## How we work
 

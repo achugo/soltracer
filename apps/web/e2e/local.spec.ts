@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { E2E_FAKE_RPC_PORT } from "./env.ts";
 import { signIn } from "./sign-in-helper.ts";
+import { recordingsAvailable, THIRD_PARTY_SKIP_REASON } from "./third-party.ts";
 
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
@@ -50,6 +51,7 @@ test("runs locally by default and shows the engine, run id and full logs", async
 });
 
 test("a USDC override turns the swap into a failure at 0 and back into a success", async ({ page }) => {
+  test.skip(!recordingsAvailable("jupiter-usdc-input.cmp.json"), THIRD_PARTY_SKIP_REASON);
   const before = await idlMisses();
   await page.getByRole("textbox", { name: /^Transaction/ }).fill(fixtureTx("jupiter-usdc-input"));
   await simulate(page);
