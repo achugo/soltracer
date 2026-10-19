@@ -1,0 +1,31 @@
+{
+  "name": "@soltracer/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file-if-exists=../../.env scripts/migrate.ts up",
+    "db:rollback": "tsx --env-file-if-exists=../../.env scripts/migrate.ts down",
+    "fixtures": "tsx --env-file-if-exists=../../.env scripts/fixtures.ts"
+  },
+  "dependencies": {
+    "@solana/kit": "^8.4.0",
+    "@soltracer/shared": "workspace:*",
+    "bs58": "^6.0.0",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.5",
+    "postgres": "^3.4.9",
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.3"
+  }
+}

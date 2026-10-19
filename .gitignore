@@ -7,12 +7,14 @@ playwright-report/
 test-results/
 *.log
 
-.env
-.env.local
-**/.env
-**/.env.local
+.env*
+**/.env*
 !.env.example
 
 CLAUDE.local.md
 .claude/settings.local.json
 .DS_Store
+
+# Next.js generated
+next-env.d.ts
+*.tsbuildinfo

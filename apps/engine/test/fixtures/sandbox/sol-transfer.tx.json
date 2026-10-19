@@ -1,0 +1,62 @@
+{
+  "signature": "37i92BKa7fyNoofakFdH9WXmK6qvDafFog7x2ZPHS67bAcsehjN7H5NoZnPKTWSx4cSw6rkyz7bsHa6JvgwGbyJH",
+  "recordedAt": "2026-10-13T15:18:23.631Z",
+  "rpc": [
+    {
+      "method": "getTransaction",
+      "params": [
+        "37i92BKa7fyNoofakFdH9WXmK6qvDafFog7x2ZPHS67bAcsehjN7H5NoZnPKTWSx4cSw6rkyz7bsHa6JvgwGbyJH",
+        {
+          "encoding": "base64",
+          "maxSupportedTransactionVersion": 1,
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": "0",
+        "result": {
+          "transaction": [
+            "AWnR4Bob2ccuG89jTR17wXrc2ygeDhHNsxqS0tpffwapyYB1STzaLy4aJDL0l4ELZWmtFRAU9fxDhje5pLTyyAqAAQABA2vKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOh2j/wJCw8OqsQ+ppE3a+1O3qQGrSi3Ib951z6Gm9YRAQICAAEMAgAAAMgzMQAAAAAAAA==",
+            "base64"
+          ],
+          "meta": {
+            "err": null,
+            "status": {
+              "Ok": null
+            },
+            "fee": 5000,
+            "preBalances": [
+              8224520,
+              71065210991,
+              1
+            ],
+            "postBalances": [
+              4995000,
+              71068435511,
+              1
+            ],
+            "innerInstructions": [],
+            "logMessages": [
+              "Program 11111111111111111111111111111111 invoke [1]",
+              "Program 11111111111111111111111111111111 success"
+            ],
+            "preTokenBalances": [],
+            "postTokenBalances": [],
+            "rewards": [],
+            "loadedAddresses": {
+              "writable": [],
+              "readonly": []
+            },
+            "computeUnitsConsumed": 150,
+            "costUnits": 1481
+          },
+          "version": 0,
+          "slot": 456487029,
+          "transactionIndex": 1124,
+          "blockTime": 1791904354
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,951 @@
+{
+  "fixture": "sol-transfer",
+  "recordedAt": "2026-10-14T05:55:08.715Z",
+  "input": "AWnR4Bob2ccuG89jTR17wXrc2ygeDhHNsxqS0tpffwapyYB1STzaLy4aJDL0l4ELZWmtFRAU9fxDhje5pLTyyAqAAQABA2vKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOh2j/wJCw8OqsQ+ppE3a+1O3qQGrSi3Ib951z6Gm9YRAQICAAEMAgAAAMgzMQAAAAAAAA==",
+  "rpc": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+          "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 456729639,
+            "apiVersion": "4.3.0-alpha.2"
+          },
+          "value": [
+            {
+              "lamports": 5634400,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            },
+            {
+              "lamports": 5000000,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            }
+          ]
+        },
+        "id": "0"
+      }
+    },
+    {
+      "method": "simulateTransaction",
+      "params": [
+        "AWnR4Bob2ccuG89jTR17wXrc2ygeDhHNsxqS0tpffwapyYB1STzaLy4aJDL0l4ELZWmtFRAU9fxDhje5pLTyyAqAAQABA2vKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOh2j/wJCw8OqsQ+ppE3a+1O3qQGrSi3Ib951z6Gm9YRAQICAAEMAgAAAMgzMQAAAAAAAA==",
+        {
+          "encoding": "base64",
+          "sigVerify": false,
+          "replaceRecentBlockhash": true,
+          "commitment": "confirmed",
+          "accounts": {
+            "addresses": [
+              "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+              "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+            ],
+            "encoding": "base64"
+          }
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456729638
+          },
+          "value": {
+            "accounts": [
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 2404880,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              },
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 8224520,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              }
+            ],
+            "err": null,
+            "fee": 5000,
+            "innerInstructions": null,
+            "loadedAccountsDataSize": 213,
+            "loadedAddresses": {
+              "readonly": [],
+              "writable": []
+            },
+            "logs": [
+              "Program 11111111111111111111111111111111 invoke [1]",
+              "Program 11111111111111111111111111111111 success"
+            ],
+            "postBalances": [
+              2404880,
+              8224520,
+              1
+            ],
+            "postTokenBalances": [],
+            "preBalances": [
+              5634400,
+              5000000,
+              1
+            ],
+            "preTokenBalances": [],
+            "replacementBlockhash": {
+              "blockhash": "29xLwXBh4pyC4qT2ZqTDn2A7xCj5u2anCBypnRxf2Qr8",
+              "lastValidBlockHeight": 434766103
+            },
+            "returnData": null,
+            "unitsConsumed": 150
+          }
+        },
+        "id": "1"
+      }
+    },
+    {
+      "method": "getFeeForMessage",
+      "params": [
+        "gAEAAQNryhAX/NwkX66B1LueFUcnVpF//lNJlDYl9a0pb7leE9bErXJkRfttIfetZ4xDTF5L0fWzHsx4YMWPtDb6Hiw8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADodo/8CQsPDqrEPqaRN2vtTt6kBq0otyG/edc+hpvWEQECAgABDAIAAADIMzEAAAAAAAA=",
+        {
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456729639
+          },
+          "value": null
+        },
+        "id": "2"
+      }
+    },
+    {
+      "method": "getRecentPrioritizationFees",
+      "params": [
+        [
+          "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+          "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+        ]
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": [
+          {
+            "prioritizationFee": 0,
+            "slot": 456729490
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729491
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729492
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729493
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729494
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729495
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729496
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729497
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729498
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729499
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729500
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729501
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729502
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729503
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729504
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729505
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729506
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729507
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729508
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729509
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729510
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729511
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729512
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729513
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729514
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729515
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729516
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729517
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729518
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729519
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729520
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729521
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729522
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729523
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729524
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729525
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729526
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729527
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729528
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729529
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729530
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729531
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729532
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729533
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729534
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729535
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729536
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729537
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729538
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729539
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729540
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729541
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729542
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729543
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729544
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729545
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729546
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729547
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729548
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729549
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729550
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729551
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729552
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729553
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729554
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729555
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729556
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729557
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729558
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729559
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729560
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729561
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729562
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729563
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729564
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729565
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729566
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729567
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729568
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729569
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729570
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729571
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729572
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729573
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729574
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729575
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729576
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729577
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729578
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729579
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729580
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729581
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729582
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729583
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729584
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729585
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729586
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729587
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729588
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729589
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729590
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729591
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729592
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729593
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729594
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729595
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729596
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729597
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729598
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729599
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729600
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729601
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729602
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729603
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729604
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729605
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729606
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729607
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729608
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729609
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729610
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729611
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729612
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729613
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729614
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729615
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729616
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729617
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729618
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729619
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729620
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729621
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729622
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729623
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729624
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729625
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729626
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729627
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729628
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729629
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729630
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729631
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729632
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729633
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729634
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729635
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729636
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729637
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729638
+          },
+          {
+            "prioritizationFee": 0,
+            "slot": 456729639
+          }
+        ],
+        "id": "3"
+      }
+    },
+    {
+      "method": "getLatestBlockhash",
+      "params": [
+        {
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "id": "4",
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 456729639
+          },
+          "value": {
+            "blockhash": "5CPsi17QPQmF27EjAYe8xBHuhq4JNuqw3WCt1bg4Ec4x",
+            "lastValidBlockHeight": 434766104
+          }
+        }
+      }
+    },
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+          "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 456729639,
+            "apiVersion": "4.3.0-alpha.2"
+          },
+          "value": [
+            {
+              "lamports": 5634400,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            },
+            {
+              "lamports": 5000000,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            }
+          ]
+        },
+        "id": "5"
+      }
+    },
+    {
+      "method": "simulateTransaction",
+      "params": [
+        "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQACBGvKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAAPloAKAMZM65/2vbAHyvi2ME0+EvXgECBbLlcXbyL3OkCAgIAAQwCAAAAyDMxAAAAAAADAAUCBgIAAAA=",
+        {
+          "encoding": "base64",
+          "sigVerify": false,
+          "replaceRecentBlockhash": true,
+          "commitment": "confirmed",
+          "accounts": {
+            "addresses": [
+              "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+              "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+            ],
+            "encoding": "base64"
+          }
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456729639
+          },
+          "value": {
+            "accounts": [
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 2404880,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              },
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 8224520,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              }
+            ],
+            "err": null,
+            "fee": 5000,
+            "innerInstructions": null,
+            "loadedAccountsDataSize": 299,
+            "loadedAddresses": {
+              "readonly": [],
+              "writable": []
+            },
+            "logs": [
+              "Program 11111111111111111111111111111111 invoke [1]",
+              "Program 11111111111111111111111111111111 success",
+              "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+              "Program ComputeBudget111111111111111111111111111111 success"
+            ],
+            "postBalances": [
+              2404880,
+              8224520,
+              1,
+              1
+            ],
+            "postTokenBalances": [],
+            "preBalances": [
+              5634400,
+              5000000,
+              1,
+              1
+            ],
+            "preTokenBalances": [],
+            "replacementBlockhash": {
+              "blockhash": "5CPsi17QPQmF27EjAYe8xBHuhq4JNuqw3WCt1bg4Ec4x",
+              "lastValidBlockHeight": 434766104
+            },
+            "returnData": null,
+            "unitsConsumed": 300
+          }
+        },
+        "id": "6"
+      }
+    },
+    {
+      "method": "getFeeForMessage",
+      "params": [
+        "gAEAAgRryhAX/NwkX66B1LueFUcnVpF//lNJlDYl9a0pb7leE9bErXJkRfttIfetZ4xDTF5L0fWzHsx4YMWPtDb6Hiw8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAD5aACgDGTOuf9r2wB8r4tjBNPhL14BAgWy5XF28i9zpAgICAAEMAgAAAMgzMQAAAAAAAwAFAgYCAAAA",
+        {
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456729639
+          },
+          "value": 5000
+        },
+        "id": "7"
+      }
+    }
+  ]
+}
