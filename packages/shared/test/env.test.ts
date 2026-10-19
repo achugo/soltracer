@@ -60,6 +60,33 @@ describe("engineEnvSchema", () => {
     }
   });
 
+  it("allows plain ws only for a loopback socket (local fakes in e2e)", () => {
+    for (const url of ["ws://127.0.0.1:4199", "ws://localhost:4199/"]) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: url }).success).toBe(true);
+    }
+    for (const url of ["ws://rpc.example.com", "ws://127.0.0.1.evil.com", "ws://10.0.0.1", "ws://127.0.0.1:4199/?api-key=real", "http://127.0.0.1:4199"]) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: url }).success).toBe(false);
+    }
+  });
+
+  it("plain loopback URLs carry no credentials or api key in any spelling", () => {
+    const bad = [
+      "/?API_KEY=real",
+      "/?api_key=real",
+      "/?api%2Dkey=real",
+      "/?x=1&Api-Key=real",
+      "/?apikey=real",
+    ];
+    for (const suffix of bad) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_RPC_URL: `http://127.0.0.1:4199${suffix}` }).success, suffix).toBe(false);
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: `ws://127.0.0.1:4199${suffix}` }).success, suffix).toBe(false);
+    }
+    for (const url of ["ws://user:pass@127.0.0.1:4199", "ws://user@localhost:4199"]) {
+      expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: url }).success, url).toBe(false);
+    }
+    expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: "ws://127.0.0.1:4199/?session=1" }).success).toBe(true);
+  });
+
   it("requires https and wss Helius URLs", () => {
     expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_RPC_URL: "http://rpc.example.com" }).success).toBe(false);
     expect(engineEnvSchema.safeParse({ ...engineEnv, HELIUS_WSS_URL: "ws://rpc.example.com" }).success).toBe(false);

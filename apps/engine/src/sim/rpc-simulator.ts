@@ -141,6 +141,7 @@ export async function simulateWithRpc(
     overrides: [],
     trace,
     accountDiffs: diffsWithoutInvalidDecoding(diffAccounts(writable, preStates, postStates, (owner) => idls.get(owner) ?? null)),
+    replay: null,
     runId: null,
   };
   log?.info({ credits: result.credits, success: status.success, unitsConsumed: result.unitsConsumed }, "simulation done");

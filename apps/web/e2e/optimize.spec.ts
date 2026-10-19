@@ -85,6 +85,7 @@ function ownTransactionResult(signers: string[] = [allowedWallet.address]) {
     overrides: [],
     trace: { nodes: [], failingNodeId: null, complete: true },
     accountDiffs: [],
+    replay: null,
     runId: null,
   };
   const preset = { priceMicroLamports: "1000", priorityFeeLamports: "1", totalFeeLamports: String(5000 * signers.length + 1), tx };

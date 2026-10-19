@@ -10,7 +10,8 @@
     "./simulation": "./src/simulation.ts",
     "./solana": "./src/solana.ts",
     "./optimize": "./src/optimize.ts",
-    "./trace": "./src/trace.ts"
+    "./trace": "./src/trace.ts",
+    "./stream": "./src/stream.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

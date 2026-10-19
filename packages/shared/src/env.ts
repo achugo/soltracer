@@ -28,16 +28,50 @@ const secret = (name: string) => z.string().min(32, `${name} must be at least 32
 
 const urlWithProtocol = (protocol: RegExp) => z.url({ protocol });
 
+/** Any "@" before the path counts as credentials ("user:pass@host"); stricter than URL parsers, on purpose. */
+function hasCredentials(url: string): boolean {
+  return (url.replace(/^[a-z]+:\/\//i, "").split(/[/?#]/)[0] ?? "").includes("@");
+}
+
+/** An api-key query parameter in any spelling (api-key, API_KEY, api%2Dkey, ...). */
+function carriesApiKey(url: string): boolean {
+  const query = url.split("#")[0]?.split("?").slice(1).join("?") ?? "";
+  return query.split("&").some((pair) => {
+    const raw = pair.split("=")[0] ?? "";
+    let name: string;
+    try {
+      name = decodeURIComponent(raw.replace(/\+/g, " "));
+    } catch {
+      name = raw;
+    }
+    return name.toLowerCase().replace(/[-_\s]/g, "") === "apikey";
+  });
+}
+
+/**
+ * A plain (unencrypted) URL is only for local fakes in e2e: loopback, no credentials, no api key,
+ * so a real key can never travel over an unencrypted connection.
+ */
+const loopbackUrl = (protocol: RegExp, label: string) =>
+  z
+    .url({ protocol, hostname: /^(127\.0\.0\.1|localhost)$/ })
+    .refine(
+      (u) => !hasCredentials(u) && !carriesApiKey(u),
+      `A plain-${label} URL is for local fakes: loopback only, with no credentials or api key`,
+    );
+
 export const engineEnvSchema = z.object({
   HELIUS_API_KEY: z.string().min(1),
   // https, or plain http to a loopback address (local fake RPC for e2e tests).
   HELIUS_RPC_URL: z.union([
     urlWithProtocol(/^https$/),
-    z
-      .url({ protocol: /^http$/, hostname: /^(127\.0\.0\.1|localhost)$/ })
-      .refine((u) => !/api-key=/i.test(u), "A plain-http RPC URL must not carry an api-key"),
+    loopbackUrl(/^http$/, "http"),
   ]),
-  HELIUS_WSS_URL: urlWithProtocol(/^wss$/),
+  // wss, or plain ws to a loopback address (local fake socket for e2e tests).
+  HELIUS_WSS_URL: z.union([
+    urlWithProtocol(/^wss$/),
+    loopbackUrl(/^ws$/, "ws"),
+  ]),
   DATABASE_URL: urlWithProtocol(/^postgres(ql)?$/),
   ALLOWLIST: allowlistSchema,
   ENGINE_TOKEN: secret("ENGINE_TOKEN"),

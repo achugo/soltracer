@@ -45,6 +45,7 @@ export function simulationResult(overrides: Partial<SimulationResult> = {}): Sim
     overrides: [],
     trace: { nodes: [], failingNodeId: null, complete: true },
     accountDiffs: [],
+    replay: null,
     runId: null,
     ...overrides,
   };
