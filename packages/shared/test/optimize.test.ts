@@ -38,6 +38,7 @@ const sim: SimulationResult = {
   overrides: [],
   trace: { nodes: [], failingNodeId: null, complete: true },
   accountDiffs: [],
+  replay: null,
   runId: null,
 };
 

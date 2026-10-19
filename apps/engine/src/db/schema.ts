@@ -1,4 +1,4 @@
-import { bigint, boolean, index, jsonb, pgTable, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, jsonb, pgTable, primaryKey, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /** Single-use sign-in nonces. A nonce is spent when used_at is set. */
 export const authNonces = pgTable(
@@ -41,18 +41,46 @@ export const idlCache = pgTable("idl_cache", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
-/** Every sandbox run: what was pasted, the overrides and the result. Ids are random UUIDs. */
+/** Every run: sandbox runs and the streamer's re-runs of failed transactions. Ids are random UUIDs. */
 export const runs = pgTable(
   "runs",
   {
     id: uuid("id").primaryKey(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-    /** Session wallet that ran it; reads are scoped to it. */
+    /** The session wallet (sandbox) or the streamed wallet (stream). Any allowlisted session may read it. */
     wallet: text("wallet").notNull(),
+    source: text("source", { enum: ["sandbox", "stream"] }).notNull().default("sandbox"),
     engine: text("engine", { enum: ["local", "rpc"] }).notNull(),
     input: text("input").notNull(),
     overrides: jsonb("overrides").notNull(),
     result: jsonb("result").notNull(),
   },
   (t) => [index("runs_wallet_created_at_idx").on(t.wallet, t.createdAt)],
+);
+
+/**
+ * Transactions that mention an allowlisted wallet, from logsSubscribe or gap fill. One row per wallet
+ * it mentions. Hydrated with getTransaction; failures get a best-effort re-run (run_id).
+ */
+export const streamEvents = pgTable(
+  "stream_events",
+  {
+    wallet: text("wallet").notNull(),
+    signature: text("signature").notNull(),
+    slot: bigint("slot", { mode: "number" }).notNull(),
+    onChainError: jsonb("on_chain_error"),
+    logs: jsonb("logs").$type<string[]>().notNull(),
+    status: text("status", { enum: ["pending", "hydrated", "hydrate_failed"] }).notNull(),
+    blockTime: bigint("block_time", { mode: "number" }),
+    deltas: jsonb("deltas"),
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    replayOutcomeMatches: boolean("replay_outcome_matches"),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.wallet, t.signature] }),
+    // The feed reads newest first by chain order; this is its exact sort, so pages are index scans.
+    index("stream_events_page_idx").on(t.slot.desc(), t.signature.desc(), t.wallet.desc()),
+    index("stream_events_status_idx").on(t.status),
+  ],
 );

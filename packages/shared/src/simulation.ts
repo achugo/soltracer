@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { pubkeySchema } from "./solana.ts";
+import { pubkeySchema, signatureSchema } from "./solana.ts";
 
-export { txErrorSchema, u64Schema } from "./tx-error.ts";
-import { txErrorSchema, u64Schema } from "./tx-error.ts";
+export { signedAmountSchema, txErrorSchema, u64Schema } from "./tx-error.ts";
+import { signedAmountSchema, txErrorSchema, u64Schema } from "./tx-error.ts";
 import { accountDiffSchema, MAX_ACCOUNT_DIFFS, traceSchema } from "./trace.ts";
 
 /** Largest serialized legacy or v0 transaction the network accepts. */
@@ -21,8 +21,7 @@ export const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
 export const DEFAULT_CU_PER_INSTRUCTION = 200_000;
 
 const u64 = u64Schema;
-// The difference of two u64 values still fits in 20 digits.
-const signedAmount = z.string().regex(/^-?\d{1,20}$/, "Must be an integer string");
+const signedAmount = signedAmountSchema;
 
 /** Most overrides per run, and the most raw account data all data overrides may carry together. */
 export const MAX_OVERRIDES = 32;
@@ -113,6 +112,26 @@ export const simulationStatusSchema = z.discriminatedUnion("success", [
   z.object({ success: z.literal(false), error: txErrorSchema }),
 ]);
 
+/** Most characters of an RPC error's JSON (real ones are well under 200). */
+export const MAX_RPC_ERROR_CHARS = 2048;
+
+/** A transaction error as RPC JSON, size-capped. */
+export const rpcErrorJsonSchema = z
+  .json()
+  .refine((v) => JSON.stringify(v).length <= MAX_RPC_ERROR_CHARS, `At most ${MAX_RPC_ERROR_CHARS} characters of error JSON`);
+
+export const replaySchema = z.object({
+  signature: signatureSchema,
+  slot: z.number().int().min(0),
+  /** The error the transaction failed with on-chain, as RPC JSON (null if it succeeded). */
+  onChainError: rpcErrorJsonSchema.nullable(),
+  /** The same error, located and decoded by the engine (null if it succeeded). */
+  onChainTxError: txErrorSchema.nullable(),
+  accuracy: z.literal("best-effort"),
+  /** Whether this run ended the same way as on-chain (both succeeded, or the same instruction and error). */
+  outcomeMatches: z.boolean(),
+});
+
 export const simulationResultSchema = z.object({
   ok: z.literal(true),
   encoding: z.enum(["base64", "base58"]),
@@ -145,6 +164,12 @@ export const simulationResultSchema = z.object({
   trace: traceSchema,
   /** Accounts the run created, closed or changed, decoded where a layout or IDL is known. */
   accountDiffs: z.array(accountDiffSchema).max(MAX_ACCOUNT_DIFFS),
+  /**
+   * Set when the run re-executes a transaction that already landed (the streamer's auto-runs).
+   * It ran against current state, not the state at its slot, so it is best-effort (Phase 6 adds exact).
+   * Null for sandbox runs, which simulate a transaction that hasn't been sent.
+   */
+  replay: replaySchema.nullable(),
   /** Stored run id; null for internal runs (e.g. the optimizer's checks) that are not stored. */
   runId: z.uuidv4().nullable(),
 }).superRefine((r, ctx) => {
@@ -159,6 +184,15 @@ export const simulationResultSchema = z.object({
   if (r.computeBudget.priorityFeeLamports !== r.fee.priorityLamports) {
     ctx.addIssue({ code: "custom", path: ["fee", "priorityLamports"], message: "Must equal computeBudget.priorityFeeLamports" });
   }
+  if (r.replay) {
+    if ((r.replay.onChainError === null) !== (r.replay.onChainTxError === null)) {
+      ctx.addIssue({ code: "custom", path: ["replay", "onChainTxError"], message: "Present exactly when there is an on-chain error" });
+    }
+    // A transaction that succeeded on-chain matches only if the re-run succeeds too.
+    if (r.replay.onChainError === null && r.replay.outcomeMatches !== r.status.success) {
+      ctx.addIssue({ code: "custom", path: ["replay", "outcomeMatches"], message: "Must equal status.success when it succeeded on-chain" });
+    }
+  }
 });
 
 export type SimulateRequest = z.infer<typeof simulateRequestSchema>;
@@ -171,6 +205,7 @@ export type Fee = z.infer<typeof feeSchema>;
 export type SolBalance = z.infer<typeof solBalanceSchema>;
 export type TokenBalance = z.infer<typeof tokenBalanceSchema>;
 export type SimulationResult = z.infer<typeof simulationResultSchema>;
+export type Replay = z.infer<typeof replaySchema>;
 
 /** Formats an integer amount string with `decimals` places, trimming trailing zeros. */
 export function formatUnits(raw: string, decimals: number): string {

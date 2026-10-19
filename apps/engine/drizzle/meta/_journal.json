@@ -29,6 +29,13 @@
       "when": 1791977471582,
       "tag": "0003_idl_full",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792391884277,
+      "tag": "0004_stream_events",
+      "breakpoints": true
     }
   ]
 }

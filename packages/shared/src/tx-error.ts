@@ -3,6 +3,8 @@ import { pubkeySchema } from "./solana.ts";
 
 /** u64 values travel as decimal strings: they can exceed Number.MAX_SAFE_INTEGER. */
 export const u64Schema = z.string().regex(/^\d{1,20}$/, "Must be a non-negative integer string");
+/** The difference of two u64 values still fits in 20 digits. */
+export const signedAmountSchema = z.string().regex(/^-?\d{1,20}$/, "Must be an integer string");
 
 export const txErrorSchema = z.object({
   /** Top-level instruction that failed, when the error names one. */
