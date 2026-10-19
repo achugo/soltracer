@@ -13,7 +13,8 @@ async function tableExists(name: string): Promise<boolean> {
   return rows[0]?.exists === true;
 }
 
-const TABLES = ["auth_nonces", "mint_cache", "lookup_table_cache", "idl_cache", "runs"];
+// stream_events references runs, so it is dropped first.
+const TABLES = ["auth_nonces", "mint_cache", "lookup_table_cache", "idl_cache", "stream_events", "runs"];
 
 async function columnExists(table: string, column: string): Promise<boolean> {
   const rows = await db.execute<{ exists: boolean }>(
@@ -38,6 +39,12 @@ describe("migrations", () => {
     await migrateUp(db);
     for (const t of TABLES) expect(await tableExists(t)).toBe(true);
     expect(await columnExists("idl_cache", "idl")).toBe(true);
+    expect(await columnExists("runs", "source")).toBe(true);
+
+    expect(await migrateDown(db)).toBe("0004_stream_events");
+    expect(await tableExists("stream_events")).toBe(false);
+    expect(await columnExists("runs", "source")).toBe(false);
+    expect(await tableExists("runs")).toBe(true);
 
     expect(await migrateDown(db)).toBe("0003_idl_full");
     expect(await columnExists("idl_cache", "idl")).toBe(false);
