@@ -18,13 +18,22 @@ const base64 = getBase64Encoder();
 export async function getMultipleAccountsBatched(
   rpc: SolanaRpc,
   addresses: readonly Address[],
+  /** Read only a byte range of every account (e.g. a program header). */
+  dataSlice?: { offset: number; length: number },
+  /** Reject answers from a node behind this slot. */
+  minContextSlot?: bigint,
 ): Promise<{ slot: bigint | null; accounts: (AccountSnapshot | null)[] }> {
   const accounts: (AccountSnapshot | null)[] = [];
   let slot: bigint | null = null;
   for (let start = 0; start < addresses.length; start += MAX_ACCOUNTS_PER_CALL) {
     const batch = addresses.slice(start, start + MAX_ACCOUNTS_PER_CALL);
     const { context, value } = await rpc
-      .getMultipleAccounts(batch, { encoding: "base64", commitment: "confirmed" })
+      .getMultipleAccounts(batch, {
+        encoding: "base64",
+        commitment: "confirmed",
+        ...(dataSlice ? { dataSlice } : {}),
+        ...(minContextSlot !== undefined ? { minContextSlot } : {}),
+      })
       .send();
     if (value.length !== batch.length) {
       throw new RpcError(

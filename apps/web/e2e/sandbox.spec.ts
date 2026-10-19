@@ -13,7 +13,7 @@ function fixtureTx(name: string): string {
 }
 
 async function simulate(page: Page, tx: string) {
-  await page.getByLabel(/Transaction/).fill(tx);
+  await page.getByRole("textbox", { name: /^Transaction/ }).fill(tx);
   await page.getByRole("button", { name: /simulate/i }).click();
 }
 
@@ -32,7 +32,9 @@ test("a SOL transfer simulates successfully with its CU, fee and balance changes
   await expect(page.getByText("0.00322952").first()).toBeVisible();
 });
 
-test("a Jupiter swap with lookup tables lists every resolved account", async ({ page }) => {
+test("a Jupiter swap with lookup tables lists every resolved account (RPC engine)", async ({ page }) => {
+  // Recorded on RPC when this wallet still had funds; the toggle picks that engine explicitly.
+  await page.getByRole("radio", { name: /^RPC/ }).check();
   await simulate(page, fixtureTx("jupiter-swap-alt"));
   await expect(page.getByRole("region", { name: "Status" })).toContainText("Success");
   await expect(page.getByText("24 accounts")).toBeVisible();

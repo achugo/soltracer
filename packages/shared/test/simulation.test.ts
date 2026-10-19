@@ -1,6 +1,9 @@
 import bs58 from "bs58";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_OVERRIDE_DATA_BYTES,
+  MAX_OVERRIDES,
+  overrideSchema,
   DEFAULT_CU_PER_INSTRUCTION,
   formatUnits,
   MAX_COMPUTE_UNIT_LIMIT,
@@ -52,6 +55,11 @@ const success: SimulationResult = {
   logs: ["Program 11111111111111111111111111111111 invoke [1]"],
   slot: 300_000_000,
   credits: 5,
+  engine: "local",
+  fallbackReason: null,
+  perInstruction: [{ index: 0, programId: key(5), unitsConsumed: 120_000 }],
+  overrides: [],
+  runId: "3f0a9a6e-6c1f-4f61-9d2b-5d1b8f3e2a10",
 };
 
 describe("constants", () => {
@@ -70,21 +78,51 @@ describe("constants", () => {
 });
 
 describe("simulateRequestSchema", () => {
-  it("trims and accepts a transaction string", () => {
-    expect(simulateRequestSchema.parse({ tx: "  AQID  " })).toEqual({ tx: "AQID" });
+  it("trims the transaction and defaults to the local engine with no overrides", () => {
+    expect(simulateRequestSchema.parse({ tx: "  AQID  " })).toEqual({ tx: "AQID", engine: "local", overrides: [] });
+  });
+
+  it("accepts the three override kinds for a local run", () => {
+    const overrides = [
+      { kind: "sol", address: key(1), lamports: "5000000000" },
+      { kind: "token", owner: key(1), mint: key(2), amount: "1000000" },
+      { kind: "data", address: key(3), dataBase64: "AQID", owner: key(4) },
+    ];
+    expect(simulateRequestSchema.parse({ tx: "AQID", engine: "local", overrides }).overrides).toEqual(overrides);
+  });
+
+  it("rejects overrides on an rpc run, too many overrides and malformed ones", () => {
+    const sol = { kind: "sol", address: key(1), lamports: "1" };
+    expect(simulateRequestSchema.safeParse({ tx: "AQID", engine: "rpc", overrides: [sol] }).success).toBe(false);
+    expect(simulateRequestSchema.safeParse({ tx: "AQID", overrides: Array(MAX_OVERRIDES + 1).fill(sol) }).success).toBe(false);
+    expect(overrideSchema.safeParse({ kind: "sol", address: key(1), lamports: "-1" }).success).toBe(false);
+    expect(overrideSchema.safeParse({ kind: "data", address: key(1), dataBase64: "not base64!" }).success).toBe(false);
+    expect(overrideSchema.safeParse({ kind: "token", owner: key(1), mint: "x", amount: "1" }).success).toBe(false);
+  });
+
+  it("caps raw data overrides at 1 MiB in total", () => {
+    const half = "A".repeat(Math.ceil(MAX_OVERRIDE_DATA_BYTES / 3 / 2) * 4);
+    const one = { kind: "data", address: key(1), dataBase64: half };
+    expect(simulateRequestSchema.safeParse({ tx: "AQID", overrides: [one] }).success).toBe(true);
+    expect(simulateRequestSchema.safeParse({ tx: "AQID", overrides: [one, one, one] }).success).toBe(false);
   });
 
   it("rejects empty, oversized and extra fields", () => {
     expect(simulateRequestSchema.safeParse({ tx: "   " }).success).toBe(false);
     expect(simulateRequestSchema.safeParse({ tx: "A".repeat(6000) }).success).toBe(true);
     expect(simulateRequestSchema.safeParse({ tx: "A".repeat(6001) }).success).toBe(false);
-    expect(simulateRequestSchema.safeParse({ tx: "AQID", engine: "local" }).success).toBe(false);
+    expect(simulateRequestSchema.safeParse({ tx: "AQID", sign: true }).success).toBe(false);
   });
 });
 
 describe("simulationResultSchema", () => {
   it("accepts a successful result with u64 amounts beyond 2^53", () => {
     expect(simulationResultSchema.parse(success)).toEqual(success);
+  });
+
+  it("allows a null run id (internal runs that are not stored) and requires a uuid otherwise", () => {
+    expect(simulationResultSchema.safeParse({ ...success, runId: null }).success).toBe(true);
+    expect(simulationResultSchema.safeParse({ ...success, runId: "run-1" }).success).toBe(false);
   });
 
   it("accepts a failure with a decoded error", () => {

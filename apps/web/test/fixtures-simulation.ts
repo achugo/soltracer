@@ -39,6 +39,11 @@ export function simulationResult(overrides: Partial<SimulationResult> = {}): Sim
     logs: ["Program 11111111111111111111111111111111 invoke [1]", "Program 11111111111111111111111111111111 success"],
     slot: 300_000_000,
     credits: 3,
+    engine: "rpc",
+    fallbackReason: null,
+    perInstruction: [],
+    overrides: [],
+    runId: null,
     ...overrides,
   };
 }

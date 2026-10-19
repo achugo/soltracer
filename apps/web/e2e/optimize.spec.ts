@@ -14,7 +14,7 @@ function fixtureTx(name: string): string {
 }
 
 async function simulateThenOptimize(page: Page, tx: string) {
-  await page.getByLabel(/Transaction/).fill(tx);
+  await page.getByRole("textbox", { name: /^Transaction/ }).fill(tx);
   await page.getByRole("button", { name: /simulate/i }).click();
   await expect(page.getByRole("region", { name: "Status" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Optimize for landing" }).click();
@@ -79,6 +79,11 @@ function ownTransactionResult(signers: string[] = [allowedWallet.address]) {
     logs: [],
     slot: 1,
     credits: 3,
+    engine: "rpc",
+    fallbackReason: null,
+    perInstruction: [],
+    overrides: [],
+    runId: null,
   };
   const preset = { priceMicroLamports: "1000", priorityFeeLamports: "1", totalFeeLamports: String(5000 * signers.length + 1), tx };
   return {

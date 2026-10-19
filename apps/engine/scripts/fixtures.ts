@@ -7,8 +7,9 @@
  *   tsx scripts/fixtures.ts record-idl <program> <name> [--force]
  *   tsx scripts/fixtures.ts simulate <fixture-name> [--force]   (runs the simulator, records its calls)
  *   tsx scripts/fixtures.ts optimize <fixture-name> [--force]   (runs the optimizer at p75, records its calls)
+ *   tsx scripts/fixtures.ts compare <fixture-name> [--force]    (rpc then local, back to back; big data -> blobs/)
  *
- * kinds: jupiter-alt-success | jupiter-slippage-6001 | sol-transfer | token-2022-transfer | v1-transaction
+ * kinds: jupiter-alt-success | jupiter-slippage-6001 | jupiter-usdc-input | sol-transfer | token-2022-transfer | v1-transaction
  */
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -19,7 +20,12 @@ import { z } from "zod";
 import { createMemoryCaches } from "../src/cache/memory.ts";
 import { anchorIdlAddress } from "../src/decode/idl-address.ts";
 import { optimizeWithRpc } from "../src/optimize/optimizer.ts";
+import { decodeTransactionInput } from "../src/tx/decode.ts";
 import { simulateWithRpc } from "../src/sim/rpc-simulator.ts";
+import { createProgramCache } from "../src/sim/local/loader.ts";
+import { simulateLocally } from "../src/sim/local/local-simulator.ts";
+import { externalizeBlobs } from "../src/rpc/replay.ts";
+import { mkdirSync } from "node:fs";
 import { createRpcClient, type RpcCallRecord, type RpcSession } from "../src/rpc/client.ts";
 import { createRateLimiter } from "../src/rpc/rate-limiter.ts";
 
@@ -55,13 +61,29 @@ function customCode(err: unknown): number | null {
   return parsed.success ? Number(parsed.data.InstructionError[1].Custom) : null;
 }
 
+interface TokenBalanceLite {
+  mint: string;
+  owner?: string;
+  accountIndex: number;
+  amount: bigint;
+}
+
 interface Kind {
   program: string;
   /** Pre-filter on the signature list entry. */
   wantErr: (err: unknown) => boolean;
   /** Final check on the full transaction. */
-  accept: (tx: { logs: string[]; loadedAddresses: number; version: unknown }) => boolean;
+  accept: (tx: {
+    logs: string[];
+    loadedAddresses: number;
+    version: unknown;
+    pre: TokenBalanceLite[];
+    post: TokenBalanceLite[];
+    feePayer: string;
+  }) => boolean;
 }
+
+const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 const KINDS: Record<string, Kind> = {
   "jupiter-alt-success": {
@@ -94,6 +116,19 @@ const KINDS: Record<string, Kind> = {
           (tx.logs[i - 1] ?? "").startsWith(`Program ${TOKEN_2022} invoke`),
       ) && tx.logs.length <= 40,
   },
+  "jupiter-usdc-input": {
+    program: JUPITER_V6,
+    wantErr: (err) => err === null,
+    // A swap where the fee payer spends their own USDC.
+    accept: (tx) =>
+      tx.version === 0 &&
+      tx.pre.some(
+        (b) =>
+          b.mint === USDC &&
+          b.owner === tx.feePayer &&
+          (tx.post.find((p) => p.accountIndex === b.accountIndex)?.amount ?? 0n) < b.amount,
+      ),
+  },
   "v1-transaction": {
     program: SYSTEM,
     wantErr: (err) => err === null,
@@ -125,7 +160,20 @@ async function find(kindName: string, maxCredits: number) {
       const tx = await getTransaction(session, entry.signature);
       if (!tx?.meta) continue;
       const loaded = (tx.meta.loadedAddresses?.writable.length ?? 0) + (tx.meta.loadedAddresses?.readonly.length ?? 0);
-      if (kind.accept({ logs: [...(tx.meta.logMessages ?? [])], loadedAddresses: loaded, version: tx.version })) {
+      const lite = (list: readonly { mint: string; owner?: string; accountIndex: number; uiTokenAmount: { amount: string } }[] | null | undefined) =>
+        (list ?? []).map((b) => ({ mint: b.mint, owner: b.owner, accountIndex: Number(b.accountIndex), amount: BigInt(b.uiTokenAmount.amount) }));
+      const accepted = kind.accept({
+        logs: [...(tx.meta.logMessages ?? [])],
+        loadedAddresses: loaded,
+        version: tx.version,
+        pre: lite(tx.meta.preTokenBalances),
+        post: lite(tx.meta.postTokenBalances),
+        feePayer: (() => {
+          const decoded = decodeTransactionInput(tx.transaction[0]);
+          return decoded.ok ? (decoded.tx.staticAccounts[0] ?? "") : "";
+        })(),
+      });
+      if (accepted) {
         console.log(`FOUND ${kindName}: ${entry.signature}  (credits used: ${session.credits()})`);
         return;
       }
@@ -222,6 +270,35 @@ async function recordOptimization(name: string, force: boolean) {
   console.log(`Wrote ${outPath} (credits used: ${session.credits()})\n${stringify(summary)}`);
 }
 
+const BLOB_DIR = fileURLToPath(new URL("../test/fixtures/blobs", import.meta.url));
+
+/** Runs the rpc and local engines back to back (cold caches) and records both sessions. */
+async function recordComparison(name: string, force: boolean) {
+  if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Fixture name must be kebab-case");
+  const txPath = `${FIXTURE_DIR}${name}.tx.json`;
+  const outPath = `${FIXTURE_DIR}${name}.cmp.json`;
+  if (existsSync(outPath) && !force) throw new Error(`${outPath} exists; pass --force to overwrite`);
+  const fixture = z
+    .object({ rpc: z.array(z.object({ response: z.object({ result: z.object({ transaction: z.tuple([z.string(), z.string()]) }) }) })) })
+    .parse(JSON.parse(await readFile(txPath, "utf8")));
+  const wire = fixture.rpc[0]?.response.result.transaction[0];
+  if (!wire) throw new Error(`${txPath} has no transaction`);
+
+  const rpcRecords: RpcCallRecord[] = [];
+  const rpcSession = client.session({ record: rpcRecords });
+  const rpcOutcome = await simulateWithRpc(wire, rpcSession, createMemoryCaches());
+  const localRecords: RpcCallRecord[] = [];
+  const localSession = client.session({ record: localRecords });
+  const localOutcome = await simulateLocally(wire, [], localSession, createMemoryCaches(), createProgramCache());
+
+  mkdirSync(BLOB_DIR, { recursive: true });
+  const body = externalizeBlobs({ fixture: name, recordedAt: new Date().toISOString(), input: wire, rpc: rpcRecords, local: localRecords }, BLOB_DIR);
+  await writeFile(outPath, `${stringify(body)}\n`);
+  const summary = (o: typeof rpcOutcome) =>
+    o.ok ? { status: o.result.status.success ? "success" : o.result.status.error.name ?? o.result.status.error.code, cu: o.result.unitsConsumed, credits: o.result.credits } : o.error.code;
+  console.log(`Wrote ${outPath}\nrpc:   ${stringify(summary(rpcOutcome))}\nlocal: ${stringify(summary(localOutcome))}`);
+}
+
 const [command, a, b, c] = process.argv.slice(2);
 if (command === "find" && a) {
   const cap = b === "--max-credits" ? z.coerce.number().int().positive().parse(c) : 300;
@@ -230,9 +307,10 @@ if (command === "find" && a) {
 else if (command === "record-idl" && a && b) await recordIdl(a, b, c === "--force");
 else if (command === "simulate" && a) await recordSimulation(a, b === "--force");
 else if (command === "optimize" && a) await recordOptimization(a, b === "--force");
+else if (command === "compare" && a) await recordComparison(a, b === "--force");
 else {
   console.error(
-    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force]",
+    "Usage: fixtures.ts find <kind> [--max-credits N] | record <signature> <name> [--force] | record-idl <program> <name> [--force] | simulate|optimize|compare <name> [--force]",
   );
   process.exit(1);
 }

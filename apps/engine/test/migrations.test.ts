@@ -13,7 +13,7 @@ async function tableExists(name: string): Promise<boolean> {
   return rows[0]?.exists === true;
 }
 
-const TABLES = ["auth_nonces", "mint_cache", "lookup_table_cache", "idl_cache"];
+const TABLES = ["auth_nonces", "mint_cache", "lookup_table_cache", "idl_cache", "runs"];
 
 async function resetSchema(): Promise<void> {
   await db.execute(sql`drop schema if exists drizzle cascade`);
@@ -30,6 +30,10 @@ describe("migrations", () => {
   it("run up, down and up again cleanly", async () => {
     await migrateUp(db);
     for (const t of TABLES) expect(await tableExists(t)).toBe(true);
+
+    expect(await migrateDown(db)).toBe("0002_runs");
+    expect(await tableExists("runs")).toBe(false);
+    expect(await tableExists("mint_cache")).toBe(true);
 
     expect(await migrateDown(db)).toBe("0001_sandbox_caches");
     expect(await tableExists("mint_cache")).toBe(false);

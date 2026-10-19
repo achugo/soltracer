@@ -32,6 +32,11 @@ const sim: SimulationResult = {
   logs: [],
   slot: 1,
   credits: 3,
+  engine: "rpc",
+  fallbackReason: null,
+  perInstruction: [],
+  overrides: [],
+  runId: null,
 };
 
 const preset = (price: string, priority: string) => ({

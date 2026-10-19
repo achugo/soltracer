@@ -1,0 +1,232 @@
+{
+  "fixture": "sol-transfer",
+  "recordedAt": "2026-10-14T07:11:36.037Z",
+  "input": "AWnR4Bob2ccuG89jTR17wXrc2ygeDhHNsxqS0tpffwapyYB1STzaLy4aJDL0l4ELZWmtFRAU9fxDhje5pLTyyAqAAQABA2vKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOh2j/wJCw8OqsQ+ppE3a+1O3qQGrSi3Ib951z6Gm9YRAQICAAEMAgAAAMgzMQAAAAAAAA==",
+  "rpc": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+          "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 456750789,
+            "apiVersion": "4.3.0-alpha.2"
+          },
+          "value": [
+            {
+              "lamports": 5634400,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            },
+            {
+              "lamports": 5000000,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            }
+          ]
+        },
+        "id": "0"
+      }
+    },
+    {
+      "method": "simulateTransaction",
+      "params": [
+        "AWnR4Bob2ccuG89jTR17wXrc2ygeDhHNsxqS0tpffwapyYB1STzaLy4aJDL0l4ELZWmtFRAU9fxDhje5pLTyyAqAAQABA2vKEBf83CRfroHUu54VRydWkX/+U0mUNiX1rSlvuV4T1sStcmRF+20h961njENMXkvR9bMezHhgxY+0NvoeLDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOh2j/wJCw8OqsQ+ppE3a+1O3qQGrSi3Ib951z6Gm9YRAQICAAEMAgAAAMgzMQAAAAAAAA==",
+        {
+          "encoding": "base64",
+          "sigVerify": false,
+          "replaceRecentBlockhash": true,
+          "commitment": "confirmed",
+          "accounts": {
+            "addresses": [
+              "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+              "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5"
+            ],
+            "encoding": "base64"
+          }
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456750789
+          },
+          "value": {
+            "accounts": [
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 2404880,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              },
+              {
+                "data": [
+                  "",
+                  "base64"
+                ],
+                "executable": false,
+                "lamports": 8224520,
+                "owner": "11111111111111111111111111111111",
+                "rentEpoch": 18446744073709551615,
+                "space": 0
+              }
+            ],
+            "err": null,
+            "fee": 5000,
+            "innerInstructions": null,
+            "loadedAccountsDataSize": 213,
+            "loadedAddresses": {
+              "readonly": [],
+              "writable": []
+            },
+            "logs": [
+              "Program 11111111111111111111111111111111 invoke [1]",
+              "Program 11111111111111111111111111111111 success"
+            ],
+            "postBalances": [
+              2404880,
+              8224520,
+              1
+            ],
+            "postTokenBalances": [],
+            "preBalances": [
+              5634400,
+              5000000,
+              1
+            ],
+            "preTokenBalances": [],
+            "replacementBlockhash": {
+              "blockhash": "AZNSqd6HeSXkq778Q7HfX42Hb5NenbWrkX8byxQN3dKE",
+              "lastValidBlockHeight": 434787242
+            },
+            "returnData": null,
+            "unitsConsumed": 150
+          }
+        },
+        "id": "1"
+      }
+    },
+    {
+      "method": "getFeeForMessage",
+      "params": [
+        "gAEAAQNryhAX/NwkX66B1LueFUcnVpF//lNJlDYl9a0pb7leE9bErXJkRfttIfetZ4xDTF5L0fWzHsx4YMWPtDb6Hiw8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADodo/8CQsPDqrEPqaRN2vtTt6kBq0otyG/edc+hpvWEQECAgABDAIAAADIMzEAAAAAAAA=",
+        {
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "apiVersion": "4.3.0",
+            "slot": 456750789
+          },
+          "value": null
+        },
+        "id": "2"
+      }
+    }
+  ],
+  "local": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "8FmL6396RRtGFNedLmKyQ41YvCf4o1qFcr4QzgHiKS9Y",
+          "FTNC1uB7BZbQfiw4NY9U4LAEEvsWmL12b9LiKkVE2gj5",
+          "11111111111111111111111111111111",
+          "SysvarC1ock11111111111111111111111111111111"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "result": {
+          "context": {
+            "slot": 456750790,
+            "apiVersion": "4.3.0-alpha.2"
+          },
+          "value": [
+            {
+              "lamports": 5634400,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            },
+            {
+              "lamports": 5000000,
+              "data": [
+                "",
+                "base64"
+              ],
+              "owner": "11111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 0
+            },
+            {
+              "lamports": 1,
+              "data": [
+                "c29sYW5hX3N5c3RlbV9wcm9ncmFt",
+                "base64"
+              ],
+              "owner": "NativeLoader1111111111111111111111111111111",
+              "executable": true,
+              "rentEpoch": 18446744073709551615,
+              "space": 21
+            },
+            {
+              "lamports": 1169280,
+              "data": [
+                "xnY5GwAAAABSv85qAAAAACEEAAAAAAAAIgQAAAAAAAAnK89qAAAAAA==",
+                "base64"
+              ],
+              "owner": "Sysvar1111111111111111111111111111111111111",
+              "executable": false,
+              "rentEpoch": 18446744073709551615,
+              "space": 40
+            }
+          ]
+        },
+        "id": "3"
+      }
+    }
+  ]
+}

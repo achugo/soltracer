@@ -297,13 +297,16 @@ describe("POST /simulate", () => {
     expect(called).toBe(false);
   });
 
-  it("passes the trimmed transaction through and returns the simulator's typed errors", async () => {
-    let seen = "";
-    const res = await withSimulate(async (tx) => {
-      seen = tx;
+  it("passes the parsed request and the session wallet through, and returns the simulator's typed errors", async () => {
+    let seen: unknown;
+    let seenWallet = "";
+    const res = await withSimulate(async (request, w) => {
+      seen = request;
+      seenWallet = w;
       return { ok: false, status: 400, error: { ok: false, code: "TX_DECODE_FAILED", message: "nope", details: { tried: [] } } };
     }, { tx: "  AQID  " });
-    expect(seen).toBe("AQID");
+    expect(seen).toEqual({ tx: "AQID", engine: "local", overrides: [] });
+    expect(seenWallet).toBe(allowed.publicKey);
     expect(res).toEqual({ status: 400, body: { ok: false, code: "TX_DECODE_FAILED", message: "nope", details: { tried: [] } } });
   });
 
@@ -324,9 +327,20 @@ describe("POST /simulate", () => {
     });
   });
 
+  it("accepts data overrides beyond the default 64 KB body limit", async () => {
+    const big = "A".repeat(200_000);
+    let count = 0;
+    const res = await withSimulate(async (request) => {
+      count = request.overrides.length;
+      return { ok: false, status: 400, error: { ok: false, code: "TX_DECODE_FAILED", message: "x", details: null } };
+    }, { tx: "AQID", overrides: [{ kind: "data", address: allowed.publicKey, dataBase64: big }] });
+    expect(res.status).toBe(400);
+    expect(count).toBe(1);
+  });
+
   it("gives the simulator an abort signal that stays live for a normal request", async () => {
     let signal: AbortSignal | undefined;
-    await withSimulate(async (_tx, _log, s) => {
+    await withSimulate(async (_request, _wallet, _log, s) => {
       signal = s;
       return { ok: false, status: 400, error: { ok: false, code: "TX_DECODE_FAILED", message: "x", details: null } };
     }, { tx: "AQID" });
@@ -341,7 +355,7 @@ describe("POST /simulate", () => {
       config: testConfig,
       nonceStore: new MemoryNonceStore(),
       logger: false,
-      simulate: (_tx, _log, signal) => {
+      simulate: (_request, _wallet, _log, signal) => {
         resolveSeen(signal);
         return new Promise(() => undefined); // never finishes on its own
       },
