@@ -4,6 +4,7 @@ import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransac
 import bs58 from "bs58";
 import { allowedWallet } from "./env.ts";
 import { signIn } from "./sign-in-helper.ts";
+import { recordingsAvailable, THIRD_PARTY_SKIP_REASON } from "./third-party.ts";
 
 function fixtureTx(name: string): string {
   const path = new URL(`../../engine/test/fixtures/sandbox/${name}.tx.json`, import.meta.url);
@@ -25,6 +26,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("a recorded Jupiter swap is optimized: succeeds after rewrite, presets switch locally", async ({ page }) => {
+  // The sandbox runs the swap locally first, which needs Jupiter's program binary.
+  test.skip(!recordingsAvailable("jupiter-swap-fresh.cmp.json"), THIRD_PARTY_SKIP_REASON);
   await simulateThenOptimize(page, fixtureTx("jupiter-swap-fresh"));
   await expect(page.getByLabel("After status")).toContainText("After: succeeded in simulation");
   await expect(page.getByText("Signatures present.")).toBeVisible();
@@ -37,12 +40,15 @@ test("a recorded Jupiter swap is optimized: succeeds after rewrite, presets swit
 });
 
 test("someone else's transaction can't be sent from this wallet", async ({ page }) => {
+  // The sandbox runs the swap locally first, which needs Jupiter's program binary.
+  test.skip(!recordingsAvailable("jupiter-swap-fresh.cmp.json"), THIRD_PARTY_SKIP_REASON);
   await simulateThenOptimize(page, fixtureTx("jupiter-swap-fresh"));
   await expect(page.getByText(/Can't send/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Sign and send with wallet/ })).toBeDisabled();
 });
 
 test("a failure fees can't fix is refused with the decoded error", async ({ page }) => {
+  test.skip(!recordingsAvailable("jupiter-slippage-6001.sim.json", "jupiter-slippage-6001.opt.json", "jupiter-slippage-6001.cmp.json"), THIRD_PARTY_SKIP_REASON);
   await simulateThenOptimize(page, fixtureTx("jupiter-slippage-6001"));
   const alert = page.getByRole("alert").filter({ hasText: "SlippageToleranceExceeded" });
   await expect(alert).toBeVisible();

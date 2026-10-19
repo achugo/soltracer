@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 import { parseIdlErrors } from "../../src/decode/idl.ts";
 import { describeFailure, locateFailure } from "../../src/decode/program-error.ts";
 import { loadOnChain } from "../helpers/sandbox-fixtures.ts";
+import { jupiterIdlAccountData, present } from "../helpers/third-party.ts";
 
 const JUP = address("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 const TOKEN = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -11,15 +11,10 @@ const SYSTEM = address("11111111111111111111111111111111");
 const COMPUTE = address("ComputeBudget111111111111111111111111111111");
 const ATA = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
-const idlFixture = JSON.parse(readFileSync(new URL("../fixtures/idl/jupiter-v6.idl.json", import.meta.url), "utf8")) as {
-  rpc: { response: { result: { value: { data: [string, string] } } } }[];
-};
-const jupiterErrors = {
-  program: JUP,
-  errors: parseIdlErrors(
-    new Uint8Array(Buffer.from(idlFixture.rpc[0]?.response.result.value.data[0] ?? "", "base64")),
-  ),
-};
+// Jupiter's IDL is third-party material, kept in the local fixture cache (null when it isn't there).
+const idlData = jupiterIdlAccountData();
+const maybeJupiterErrors = idlData ? { program: JUP, errors: parseIdlErrors(idlData) } : null;
+const jupiterErrors = () => present(maybeJupiterErrors);
 
 // Top-level programs of the recorded slippage failure, in instruction order.
 const slippagePrograms: Address[] = [SYSTEM, COMPUTE, ATA, JUP, TOKEN, COMPUTE, COMPUTE];
@@ -60,8 +55,8 @@ describe("describeFailure", () => {
   const site = { instructionIndex: 3, programId: JUP, failingProgramId: JUP, customCode: 6001 };
   const err = { InstructionError: [3, { Custom: 6001 }] };
 
-  it("names a custom error from the program's IDL", () => {
-    expect(describeFailure(err, site, jupiterErrors)).toEqual({
+  it.skipIf(!maybeJupiterErrors)("names a custom error from the program's IDL", () => {
+    expect(describeFailure(err, site, jupiterErrors())).toEqual({
       ...site,
       code: 6001,
       name: "SlippageToleranceExceeded",
@@ -71,19 +66,19 @@ describe("describeFailure", () => {
     });
   });
 
-  it("ignores an IDL that belongs to a different program than the one that failed", () => {
+  it.skipIf(!maybeJupiterErrors)("ignores an IDL that belongs to a different program than the one that failed", () => {
     // Jupiter's IDL must not name a Token error raised through CPI (Token code 1 = InsufficientFunds).
     const cpi = { instructionIndex: 3, programId: JUP, failingProgramId: TOKEN, customCode: 1 };
-    expect(describeFailure({ InstructionError: [3, { Custom: 1 }] }, cpi, jupiterErrors)).toMatchObject({
+    expect(describeFailure({ InstructionError: [3, { Custom: 1 }] }, cpi, jupiterErrors())).toMatchObject({
       name: "InsufficientFunds",
       source: "builtin",
     });
     const unknown = { ...cpi, failingProgramId: address("SysvarRent111111111111111111111111111111111"), customCode: 6001 };
-    expect(describeFailure({ InstructionError: [3, { Custom: 6001 }] }, unknown, jupiterErrors).source).toBe("raw");
+    expect(describeFailure({ InstructionError: [3, { Custom: 6001 }] }, unknown, jupiterErrors()).source).toBe("raw");
   });
 
-  it("returns a raw error that serializes even when kit gave bigints", () => {
-    const out = describeFailure({ InstructionError: [3n, { Custom: 6001n }] }, site, jupiterErrors);
+  it.skipIf(!maybeJupiterErrors)("returns a raw error that serializes even when kit gave bigints", () => {
+    const out = describeFailure({ InstructionError: [3n, { Custom: 6001n }] }, site, jupiterErrors());
     expect(JSON.parse(JSON.stringify(out.raw))).toEqual({ InstructionError: [3, { Custom: 6001 }] });
   });
 
@@ -103,9 +98,9 @@ describe("describeFailure", () => {
     expect(describeFailure({ InstructionError: [0, { Custom: code }] }, s, null)).toMatchObject({ name, source: "builtin" });
   });
 
-  it("uses Anchor framework errors for an Anchor program below 6000", () => {
+  it.skipIf(!maybeJupiterErrors)("uses Anchor framework errors for an Anchor program below 6000", () => {
     const s = { ...site, customCode: 3012 };
-    expect(describeFailure({ InstructionError: [3, { Custom: 3012 }] }, s, jupiterErrors)).toMatchObject({
+    expect(describeFailure({ InstructionError: [3, { Custom: 3012 }] }, s, jupiterErrors())).toMatchObject({
       code: 3012,
       name: "AccountNotInitialized",
       source: "builtin",

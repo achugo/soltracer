@@ -15,6 +15,9 @@ CLAUDE.local.md
 .claude/settings.local.json
 .DS_Store
 
+# Third-party program binaries and IDLs used by tests: kept locally, never committed (see THIRD_PARTY_NOTICES.md)
+apps/engine/test/fixtures/third-party/
+
 # Next.js generated
 next-env.d.ts
 *.tsbuildinfo

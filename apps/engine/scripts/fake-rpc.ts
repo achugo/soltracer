@@ -13,10 +13,14 @@ import type { RpcCallRecord } from "../src/rpc/client.ts";
 import { isJsonRpcPayload } from "@solana/kit";
 import type { Address } from "@solana/kit";
 import { anchorIdlAddress } from "../src/decode/idl-address.ts";
-import { callKey, parseRecordedJson, resolveBlobs } from "../src/rpc/replay.ts";
+import { callKey, missingBlobs, parseRecordedJson, resolveBlobs } from "../src/rpc/replay.ts";
 
 const DIR = fileURLToPath(new URL("../test/fixtures/sandbox/", import.meta.url));
-const BLOB_DIR = fileURLToPath(new URL("../test/fixtures/blobs", import.meta.url));
+// Committed blobs, then the local cache of third-party program binaries and IDLs (gitignored).
+const BLOB_DIRS = [
+  fileURLToPath(new URL("../test/fixtures/blobs", import.meta.url)),
+  fileURLToPath(new URL("../test/fixtures/third-party", import.meta.url)),
+];
 const port = Number(process.argv[2] ?? 4199);
 
 const { rawJSON } = JSON as unknown as { rawJSON(text: string): unknown };
@@ -83,15 +87,25 @@ function composeAccountRead(method: string, params: unknown): unknown {
 // Comparison recordings (rpc + local sessions, program binaries as blobs) load first, lowest precedence.
 const files = readdirSync(DIR).sort();
 const sessions: [string, RpcCallRecord[]][] = [];
+/** A recorded session, unless it needs third-party material the local cache doesn't have (then it is skipped). */
+function loadSession(source: string, calls: unknown): RpcCallRecord[] | null {
+  if (missingBlobs(stringify(calls), BLOB_DIRS).length > 0) {
+    console.warn(`fake-rpc: skipping ${source}: needs third-party fixtures missing from the local cache`);
+    return null;
+  }
+  return resolveBlobs(calls, BLOB_DIRS) as RpcCallRecord[];
+}
+
 for (const file of files.filter((f) => f.endsWith(".cmp.json"))) {
-  const cmp = resolveBlobs(parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")), BLOB_DIR) as {
-    rpc: RpcCallRecord[];
-    local: RpcCallRecord[];
-  };
-  sessions.push([`${file}#rpc`, cmp.rpc], [`${file}#local`, cmp.local]);
+  const cmp = parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: unknown; local: unknown };
+  for (const side of ["rpc", "local"] as const) {
+    const calls = loadSession(`${file}#${side}`, cmp[side]);
+    if (calls) sessions.push([`${file}#${side}`, calls]);
+  }
 }
 for (const file of [...files.filter((f) => f.endsWith(".opt.json")), ...files.filter((f) => f.endsWith(".sim.json"))]) {
-  sessions.push([file, (parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: RpcCallRecord[] }).rpc]);
+  const calls = loadSession(file, (parseRecordedJson(readFileSync(`${DIR}${file}`, "utf8")) as { rpc: unknown }).rpc);
+  if (calls) sessions.push([file, calls]);
 }
 for (const [source, records] of sessions) {
   for (const r of records) {

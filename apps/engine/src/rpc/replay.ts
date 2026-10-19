@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { gunzipSync, gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync, inflateSync } from "node:zlib";
 import type { RpcTransport } from "@solana/kit";
 import { isJsonRpcPayload } from "@solana/kit";
 import type { RpcCallRecord } from "./client.ts";
@@ -81,15 +81,83 @@ export function externalizeBlobs(value: unknown, dir: string): unknown {
   });
 }
 
-/** Inverse of externalizeBlobs: inflates every "@blob:<sha256>" from `dir`, verifying the content hash. */
-export function resolveBlobs(value: unknown, dir: string): unknown {
+export class MissingBlobError extends Error {
+  override name = "MissingBlobError";
+  constructor(readonly hash: string) {
+    super(`Fixture blob ${hash} isn't present (third-party material is kept in a local cache, not committed)`);
+  }
+}
+
+const blobPath = (dirs: readonly string[], hash: string) => dirs.map((d) => `${d}/${hash}.b64.gz`).find((f) => existsSync(f));
+
+/**
+ * Inverse of externalizeBlobs: inflates every "@blob:<sha256>" from the first of `dirs` that has it,
+ * verifying the content hash. Throws MissingBlobError when none has it.
+ */
+export function resolveBlobs(value: unknown, dirs: string | readonly string[]): unknown {
+  const searched = typeof dirs === "string" ? [dirs] : dirs;
   return mapStrings(value, (s) => {
     if (!s.startsWith(BLOB_PREFIX)) return s;
     const hash = s.slice(BLOB_PREFIX.length);
-    // Only a hex digest may name a file, so a reference can't point outside `dir`.
+    // Only a hex digest may name a file, so a reference can't point outside the blob folders.
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error(`Bad blob reference: ${hash.slice(0, 80)}`);
-    const data = gunzipSync(readFileSync(`${dir}/${hash}.b64.gz`)).toString("utf8");
+    const file = blobPath(searched, hash);
+    if (!file) throw new MissingBlobError(hash);
+    const data = gunzipSync(readFileSync(file)).toString("utf8");
     if (createHash("sha256").update(data).digest("hex") !== hash) throw new Error(`Blob ${hash} is corrupt`);
     return data;
   });
+}
+
+/** Blob references in recorded JSON text that none of `dirs` holds. */
+export function missingBlobs(text: string, dirs: readonly string[]): string[] {
+  const hashes = new Set([...text.matchAll(/"@blob:([0-9a-f]{64})"/g)].map((m) => m[1] ?? ""));
+  return [...hashes].filter((h) => !blobPath(dirs, h));
+}
+
+const LOADERS = new Set([
+  "BPFLoader1111111111111111111111111111111111",
+  "BPFLoader2111111111111111111111111111111111",
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+  "LoaderV411111111111111111111111111111111111",
+]);
+
+/** An Anchor IDL account: 44-byte header, then zlib-compressed IDL JSON with instructions. */
+function isIdlAccountData(bytes: Buffer): boolean {
+  if (bytes.length < 46) return false;
+  const length = bytes.readUInt32LE(40);
+  if (length > bytes.length - 44) return false;
+  try {
+    const json = JSON.parse(inflateSync(bytes.subarray(44, 44 + length), { maxOutputLength: 16 * 1024 * 1024 }).toString("utf8")) as unknown;
+    return typeof json === "object" && json !== null && "instructions" in json;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Third-party material in recorded account data: program code (loader-owned accounts holding a
+ * binary) and Anchor IDLs. Its data is replaced by a blob reference written to `dir`, whatever its
+ * size, so recordings can be committed without it.
+ */
+export function externalizeThirdParty(value: unknown, dir: string): unknown {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (typeof v !== "object" || v === null) return v;
+    const obj = v as Record<string, unknown>;
+    const data = obj.data;
+    if (Array.isArray(data) && typeof data[0] === "string" && data[1] === "base64" && typeof obj.owner === "string") {
+      const b64 = data[0];
+      const bytes = b64.startsWith(BLOB_PREFIX) ? null : Buffer.from(b64, "base64");
+      const thirdParty = bytes !== null && ((LOADERS.has(obj.owner) && bytes.length > 1024) || isIdlAccountData(bytes));
+      if (thirdParty) {
+        const hash = createHash("sha256").update(b64).digest("hex");
+        const file = `${dir}/${hash}.b64.gz`;
+        if (!existsSync(file)) writeFileSync(file, gzipSync(b64, { level: 9 }));
+        return { ...obj, data: [`${BLOB_PREFIX}${hash}`, ...data.slice(1)] };
+      }
+    }
+    return Object.fromEntries(Object.entries(obj).map(([k, x]) => [k, walk(x)]));
+  };
+  return walk(value);
 }

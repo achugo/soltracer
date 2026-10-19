@@ -107,6 +107,8 @@ Parsers, decoders, simulators and the optimizer are tested against real mainnet 
 
 Each fixture comes with the RPC calls recorded at the time, so tests replay them and never touch the network.
 
+Third-party program binaries and IDLs that some recordings need are not committed (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). They live in a local, gitignored cache. On a fresh clone, the tests that need them are skipped with a clear reason and everything else runs. `pnpm --filter @soltracer/engine fixtures fetch-third-party` restores what still matches mainnet; programs upgraded since need their fixtures re-recorded.
+
 ## Repository layout
 
 ```

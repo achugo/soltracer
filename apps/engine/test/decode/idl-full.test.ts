@@ -1,24 +1,19 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { inflateSync } from "node:zlib";
 import { decodedInstructionSchema } from "@soltracer/shared/trace";
 import { describe, expect, it } from "vitest";
 import { decodeIdlAccount, decodeIdlInstruction, normalizeIdl, normalizedIdlSchema } from "../../src/decode/idl-full.ts";
-import { IdlParseError } from "../../src/decode/idl.ts";
+import { IdlParseError, inflateIdl } from "../../src/decode/idl.ts";
 import { decodeTransactionInput } from "../../src/tx/decode.ts";
 import { resolveAccounts } from "../../src/tx/lookup-tables.ts";
 import { loadOnChain, tablesFromMeta, type OnChainFixtureName } from "../helpers/sandbox-fixtures.ts";
+import { jupiterIdlAccountData, present } from "../helpers/third-party.ts";
 
 const JUP = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
 
-function jupiterIdlJson(): unknown {
-  const fx = JSON.parse(readFileSync(new URL("../fixtures/idl/jupiter-v6.idl.json", import.meta.url), "utf8")) as {
-    rpc: { response: { result: { value: { data: [string, string] } } } }[];
-  };
-  const data = Buffer.from(fx.rpc[0]?.response.result.value.data[0] ?? "", "base64");
-  return JSON.parse(inflateSync(data.subarray(44, 44 + data.readUInt32LE(40))).toString("utf8"));
-}
-const jupiter = normalizeIdl(jupiterIdlJson());
+// Jupiter's IDL is third-party material, kept in the local fixture cache (null when it isn't there).
+const idlData = jupiterIdlAccountData();
+const maybeJupiter = idlData ? normalizeIdl(inflateIdl(idlData)) : null;
+const jupiter = () => present(maybeJupiter);
 
 /** Top-level Jupiter instructions of a recorded (v0) transaction. */
 function jupiterInstructions(name: OnChainFixtureName) {
@@ -36,13 +31,13 @@ function jupiterInstructions(name: OnChainFixtureName) {
 const sighash = (preimage: string) => [...createHash("sha256").update(preimage).digest().subarray(0, 8)];
 
 describe("normalizeIdl", () => {
-  it("reads Jupiter's on-chain IDL (current Anchor format)", () => {
-    expect(jupiter.instructions).toHaveLength(19);
-    const route = jupiter.instructions.find((i) => i.name === "shared_accounts_route");
+  it.skipIf(!maybeJupiter)("reads Jupiter's on-chain IDL (current Anchor format)", () => {
+    expect(jupiter().instructions).toHaveLength(19);
+    const route = jupiter().instructions.find((i) => i.name === "shared_accounts_route");
     expect(route?.discriminator).toEqual([193, 32, 155, 51, 65, 214, 156, 129]);
     expect(route?.accounts.slice(0, 3)).toEqual(["token_program", "program_authority", "user_transfer_authority"]);
-    expect(jupiter.accounts).toEqual([{ name: "TokenLedger", discriminator: [156, 247, 9, 188, 54, 108, 85, 77] }]);
-    expect(normalizedIdlSchema.parse(JSON.parse(JSON.stringify(jupiter)))).toEqual(jupiter); // survives a jsonb round trip
+    expect(jupiter().accounts).toEqual([{ name: "TokenLedger", discriminator: [156, 247, 9, 188, 54, 108, 85, 77] }]);
+    expect(normalizedIdlSchema.parse(JSON.parse(JSON.stringify(jupiter())))).toEqual(jupiter()); // survives a jsonb round trip
   });
 
   it("rejects IDL JSON nested deeper than any real IDL, without recursing", () => {
@@ -70,14 +65,14 @@ describe("normalizeIdl", () => {
   });
 });
 
-describe("decodeIdlInstruction on mainnet Jupiter swaps", () => {
+describe.skipIf(!maybeJupiter)("decodeIdlInstruction on mainnet Jupiter swaps", () => {
   it.each(["jupiter-slippage-6001", "jupiter-swap-alt", "jupiter-swap-fresh", "jupiter-usdc-input"] as const)(
     "%s: decodes every byte of the route arguments",
     (name) => {
       const ixs = jupiterInstructions(name);
       expect(ixs.length).toBeGreaterThan(0);
       for (const ix of ixs) {
-        const decoded = decodeIdlInstruction(jupiter, ix.data, ix.accountCount);
+        const decoded = decodeIdlInstruction(jupiter(), ix.data, ix.accountCount);
         expect(decoded, name).not.toBeNull();
         expect(decodedInstructionSchema.safeParse(decoded).error).toBeUndefined();
         expect(decoded?.name).toMatch(/route/);
@@ -90,7 +85,7 @@ describe("decodeIdlInstruction on mainnet Jupiter swaps", () => {
   it("jupiter-slippage-6001: a shared-accounts route through Whirlpool, with named accounts", () => {
     const [ix] = jupiterInstructions("jupiter-slippage-6001");
     if (!ix) throw new Error("no Jupiter instruction");
-    const decoded = decodeIdlInstruction(jupiter, ix.data, ix.accountCount);
+    const decoded = decodeIdlInstruction(jupiter(), ix.data, ix.accountCount);
     expect(decoded?.name).toBe("shared_accounts_route");
     const plan = decoded?.args.route_plan as { swap: unknown; percent: number; input_index: number }[];
     expect(plan.some((step) => JSON.stringify(step.swap).includes("Whirlpool"))).toBe(true);
@@ -103,40 +98,40 @@ describe("decodeIdlInstruction on mainnet Jupiter swaps", () => {
   it("returns null (render raw) for an unknown discriminator, short data or trailing bytes", () => {
     const [ix] = jupiterInstructions("jupiter-slippage-6001");
     if (!ix) throw new Error("no Jupiter instruction");
-    expect(decodeIdlInstruction(jupiter, Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]), 0)).toBeNull();
-    expect(decodeIdlInstruction(jupiter, ix.data.subarray(0, ix.data.length - 1), ix.accountCount)).toBeNull();
-    expect(decodeIdlInstruction(jupiter, Uint8Array.from([...ix.data, 0]), ix.accountCount)).toBeNull();
-    expect(decodeIdlInstruction(jupiter, new Uint8Array(0), 0)).toBeNull();
+    expect(decodeIdlInstruction(jupiter(), Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]), 0)).toBeNull();
+    expect(decodeIdlInstruction(jupiter(), ix.data.subarray(0, ix.data.length - 1), ix.accountCount)).toBeNull();
+    expect(decodeIdlInstruction(jupiter(), Uint8Array.from([...ix.data, 0]), ix.accountCount)).toBeNull();
+    expect(decodeIdlInstruction(jupiter(), new Uint8Array(0), 0)).toBeNull();
   });
 
   it("never throws on random data behind a real discriminator", () => {
     let seed = 7;
     const rand = () => (seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) & 0xff;
-    for (const instruction of jupiter.instructions) {
+    for (const instruction of jupiter().instructions) {
       for (let i = 0; i < 50; i++) {
         const data = Uint8Array.from([...instruction.discriminator, ...Array.from({ length: i * 3 }, rand)]);
-        expect(() => decodeIdlInstruction(jupiter, data, 4)).not.toThrow();
+        expect(() => decodeIdlInstruction(jupiter(), data, 4)).not.toThrow();
       }
     }
   });
 });
 
-describe("decodeIdlAccount", () => {
+describe.skipIf(!maybeJupiter)("decodeIdlAccount", () => {
   it("decodes an account by its discriminator (Jupiter's TokenLedger)", () => {
     const amount = new Uint8Array(8);
     new DataView(amount.buffer).setBigUint64(0, 5_000_000_000n, true);
     const data = Uint8Array.from([156, 247, 9, 188, 54, 108, 85, 77, ...new Uint8Array(32).fill(1), ...amount]);
-    expect(decodeIdlAccount(jupiter, data)).toEqual({
+    expect(decodeIdlAccount(jupiter(), data)).toEqual({
       type: "TokenLedger",
       fields: { token_account: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi", amount: "5000000000" },
     });
   });
 
   it("returns null for other data, and allows trailing bytes (accounts are often padded)", () => {
-    expect(decodeIdlAccount(jupiter, new Uint8Array(48))).toBeNull();
-    expect(decodeIdlAccount(jupiter, Uint8Array.from([156, 247, 9, 188, 54, 108, 85, 77, 1]))).toBeNull();
+    expect(decodeIdlAccount(jupiter(), new Uint8Array(48))).toBeNull();
+    expect(decodeIdlAccount(jupiter(), Uint8Array.from([156, 247, 9, 188, 54, 108, 85, 77, 1]))).toBeNull();
     const padded = Uint8Array.from([156, 247, 9, 188, 54, 108, 85, 77, ...new Uint8Array(40), ...new Uint8Array(100)]);
-    expect(decodeIdlAccount(jupiter, padded)?.type).toBe("TokenLedger");
+    expect(decodeIdlAccount(jupiter(), padded)?.type).toBe("TokenLedger");
   });
 });
 

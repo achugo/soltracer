@@ -4,7 +4,6 @@ import { createRpcClient, type RpcCallRecord } from "../../src/rpc/client.ts";
 import { createRateLimiter } from "../../src/rpc/rate-limiter.ts";
 import type { Override } from "@soltracer/shared/simulation";
 import type { RpcTransport } from "@solana/kit";
-import { fileURLToPath } from "node:url";
 import { createReplayTransport, parseRecordedJson, resolveBlobs } from "../../src/rpc/replay.ts";
 import type { RateLimiter } from "../../src/rpc/rate-limiter.ts";
 import { createProgramCache } from "../../src/sim/local/loader.ts";
@@ -12,6 +11,7 @@ import { simulateLocally } from "../../src/sim/local/local-simulator.ts";
 import { optimizeWithRpc } from "../../src/optimize/optimizer.ts";
 import { simulateWithRpc } from "../../src/sim/rpc-simulator.ts";
 import type { SandboxFixtureName } from "./sandbox-fixtures.ts";
+import { BLOB_DIRS } from "./third-party.ts";
 
 export function loadSimRecording(name: SandboxFixtureName): { input: string; rpc: RpcCallRecord[] } {
   return loadRecording(`${name}.sim.json`);
@@ -19,7 +19,7 @@ export function loadSimRecording(name: SandboxFixtureName): { input: string; rpc
 
 function loadRecording(file: string): { input: string; rpc: RpcCallRecord[] } {
   const text = readFileSync(new URL(`../fixtures/sandbox/${file}`, import.meta.url), "utf8");
-  return parseRecordedJson(text) as { input: string; rpc: RpcCallRecord[] };
+  return resolveBlobs(parseRecordedJson(text), BLOB_DIRS) as { input: string; rpc: RpcCallRecord[] };
 }
 
 /** Runs the real optimizer (p75, cold caches) against recorded Helius responses. */
@@ -55,7 +55,6 @@ export async function replaySimulation(
   return { outcome, unused: transport.unused(), caches, recording };
 }
 
-const BLOB_DIR = fileURLToPath(new URL("../fixtures/blobs", import.meta.url));
 
 export const COMPARISON_FIXTURES = [
   "sol-transfer",
@@ -68,10 +67,12 @@ export const COMPARISON_FIXTURES = [
 ] as const;
 export type ComparisonName = (typeof COMPARISON_FIXTURES)[number];
 
-/** A back-to-back rpc + local recording (scripts/fixtures.ts compare), with blobs inflated. */
-export function loadComparison(name: ComparisonName): { input: string; rpc: RpcCallRecord[]; local: RpcCallRecord[] } {
+/** One engine's side of a back-to-back rpc + local recording (scripts/fixtures.ts compare), with blobs inflated. */
+export function loadComparison(name: ComparisonName, engine: "rpc" | "local"): { input: string; calls: RpcCallRecord[] } {
   const text = readFileSync(new URL(`../fixtures/sandbox/${name}.cmp.json`, import.meta.url), "utf8");
-  return resolveBlobs(parseRecordedJson(text), BLOB_DIR) as { input: string; rpc: RpcCallRecord[]; local: RpcCallRecord[] };
+  const recording = parseRecordedJson(text) as { input: string; rpc: unknown; local: unknown };
+  // Only the side being replayed is inflated: the rpc side needs no program binaries.
+  return { input: recording.input, calls: resolveBlobs(recording[engine], BLOB_DIRS) as RpcCallRecord[] };
 }
 
 function replayClient(transport: RpcTransport, limiter?: RateLimiter) {
@@ -95,8 +96,8 @@ export async function replayEngine(
     unrecordedAccountsMissing?: boolean;
   } = {},
 ) {
-  const recording = loadComparison(name);
-  const replay = createReplayTransport(engine === "rpc" ? recording.rpc : recording.local);
+  const recording = loadComparison(name, engine);
+  const replay = createReplayTransport(recording.calls);
   const transport = (async (config: Parameters<RpcTransport>[0]) => {
     options.onCall?.();
     try {

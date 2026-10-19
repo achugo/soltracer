@@ -3,6 +3,7 @@ import type { RpcCallRecord } from "../../src/rpc/client.ts";
 import { describe, expect, it } from "vitest";
 import { replaySimulation } from "../helpers/replay.ts";
 import { loadOnChain, SANDBOX_FIXTURES, type OnChainTx, type SandboxFixtureName } from "../helpers/sandbox-fixtures.ts";
+import { recordingAvailable } from "../helpers/third-party.ts";
 
 const JUP = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
 
@@ -38,9 +39,11 @@ function onChainTokens(fx: OnChainTx, result: SimulationResult): Map<string, str
 }
 
 describe("simulateWithRpc (replayed mainnet responses)", () => {
-  it.each(SANDBOX_FIXTURES)("costs 6 credits or fewer for %s", async (name) => {
-    expect((await simulate(name)).credits).toBeLessThanOrEqual(6);
-  });
+  for (const name of SANDBOX_FIXTURES) {
+    it.skipIf(!recordingAvailable(`sandbox/${name}.sim.json`))(`costs 6 credits or fewer for ${name}`, async () => {
+      expect((await simulate(name)).credits).toBeLessThanOrEqual(6);
+    });
+  }
 
   it("SOL transfer: success, on-chain CU, fee and exact SOL deltas", async () => {
     const fx = loadOnChain("sol-transfer");
@@ -77,7 +80,7 @@ describe("simulateWithRpc (replayed mainnet responses)", () => {
     expect(new Map(r.balances.sol.map((s) => [s.address, s.delta]))).toEqual(onChainSol(fx, r));
   });
 
-  it("failed Jupiter swap: decoded slippage error, fee-only balance change", async () => {
+  it.skipIf(!recordingAvailable("sandbox/jupiter-slippage-6001.sim.json"))("failed Jupiter swap: decoded slippage error, fee-only balance change", async () => {
     const fx = loadOnChain("jupiter-slippage-6001");
     const r = await simulate("jupiter-slippage-6001");
     expect(r.status).toMatchObject({

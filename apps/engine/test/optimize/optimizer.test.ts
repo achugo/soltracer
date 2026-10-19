@@ -8,6 +8,7 @@ import { priorityFeeLamports, readComputeBudget, tablesFrom } from "../../src/tx
 import { decodeTransactionInput, type DecodedTransaction } from "../../src/tx/decode.ts";
 import { resolveAccounts } from "../../src/tx/lookup-tables.ts";
 import { replayOptimization } from "../helpers/replay.ts";
+import { recordingAvailable } from "../helpers/third-party.ts";
 
 function decode(wire: string): DecodedTransaction {
   const res = decodeTransactionInput(wire);
@@ -76,7 +77,7 @@ describe("optimizeWithRpc (replayed mainnet responses)", () => {
     expect(result.contention).toMatchObject({ paidSlotShare: expect.any(Number) });
   });
 
-  it("probes at 1.4M when the original runs out of compute, then refuses the real failure (slippage)", async () => {
+  it.skipIf(!recordingAvailable("sandbox/jupiter-slippage-6001.opt.json"))("probes at 1.4M when the original runs out of compute, then refuses the real failure (slippage)", async () => {
     // Recorded today: the original exhausts its 68,548 CU limit; at 1.4M it reaches Jupiter's slippage check.
     const { outcome, unused } = await replayOptimization("jupiter-slippage-6001");
     expect(unused).toBe(0); // includes the probe simulation
